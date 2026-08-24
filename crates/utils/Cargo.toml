@@ -40,6 +40,9 @@ xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
 farmhash = "1.1.5"
 nohash-hasher = "0.2.0"
 arcstr = "1.2.0"
+azure_core = { version = "0.21.0", optional = true }
+bytes = "1.12.1"
+async-trait = "0.1.92"
 
 [target.'cfg(unix)'.dependencies]
 privdrop = "0.5.6"

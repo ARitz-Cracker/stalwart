@@ -125,7 +125,7 @@ pub async fn build_email_push_object(
     if needs_body {
         let Some(blob) = server
             .blob_store()
-            .get_blob(blob_hash.as_slice(), 0..usize::MAX)
+            .get_blob_vec(blob_hash.as_slice(), 0..u64::MAX)
             .await
             .caused_by(trc::location!())?
         else {

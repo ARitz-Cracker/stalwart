@@ -50,7 +50,7 @@ pub struct GroupwareConfig {
     pub default_addressbook_display_name: Option<String>,
 
     // File storage settings
-    pub max_file_size: usize,
+    pub max_file_size: u64,
 
     // Sharing settings
     pub max_shares_per_item: usize,
@@ -108,7 +108,7 @@ impl GroupwareConfig {
             max_ical_instances: calendar.max_recurrence_expansions as usize,
             max_ical_attendees_per_instance: calendar.max_attendees as usize,
             max_vcard_size: book.max_v_card_size as usize,
-            max_file_size: file.max_size as usize,
+            max_file_size: file.max_size,
             alarms_enabled: alarm.enable,
             alarms_minimum_interval: alarm.min_trigger_interval.into_inner().as_secs() as i64,
             alarms_allow_external_recipients: alarm.allow_external_rcpts,

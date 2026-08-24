@@ -192,7 +192,7 @@ impl EmailGet for Server {
             if needs_body {
                 raw_body = self
                     .blob_store()
-                    .get_blob(blob_hash.as_slice(), 0..usize::MAX)
+                    .get_blob_vec(blob_hash.as_slice(), 0..u64::MAX)
                     .await?;
 
                 if let Some(raw_body) = &raw_body {

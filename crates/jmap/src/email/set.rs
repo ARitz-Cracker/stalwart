@@ -574,7 +574,7 @@ impl EmailSet for Server {
                                     headers,
                                     contents: if !is_multipart {
                                         if let Some(blob_id) = blob_id {
-                                            match self.blob_download(&blob_id, access_token).await? {
+                                            match self.blob_download_vec(&blob_id, access_token).await? {
                                                 Some(contents) => {
                                                     BodyPart::Binary(contents.into())
                                                 }

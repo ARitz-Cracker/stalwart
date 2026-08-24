@@ -565,7 +565,7 @@ impl EmailIngest for Server {
         let (blob_hash, blob_hold) = if !is_encrypted && let Some(blob_hash) = params.blob_hash {
             (blob_hash.clone(), None)
         } else {
-            self.put_temporary_blob(account_id, raw_message.as_ref(), 60)
+            self.put_temporary_blob(account_id, raw_message.clone().into_owned().into(), 60)
                 .await
                 .map(|(hash, op)| (hash, Some(op)))
                 .caused_by(trc::location!())?

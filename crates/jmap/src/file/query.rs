@@ -133,7 +133,6 @@ impl FileNodeQuery for Server {
                         )));
                     }
                     FileNodeFilter::MinSize(size) => {
-                        let size = size as u32;
                         filters.push(SearchFilter::is_in_set(RoaringBitmap::from_iter(
                             cache.resources.iter().filter_map(|r| {
                                 if r.size().is_some_and(|s| s >= size) {
@@ -145,7 +144,6 @@ impl FileNodeQuery for Server {
                         )));
                     }
                     FileNodeFilter::MaxSize(size) => {
-                        let size = size as u32;
                         filters.push(SearchFilter::is_in_set(RoaringBitmap::from_iter(
                             cache.resources.iter().filter_map(|r| {
                                 if r.size().is_some_and(|s| s <= size) {

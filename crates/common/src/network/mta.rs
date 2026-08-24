@@ -372,36 +372,35 @@ impl Server {
 
     pub async fn spam_model_reload(&self) -> trc::Result<()> {
         if self.core.spam.classifier.is_some() {
-            if let Some(model) = self
+            let Some((archive, _)) = self
                 .blob_store()
-                .get_blob(SPAM_CLASSIFIER_KEY, 0..usize::MAX)
+                .get_blob(SPAM_CLASSIFIER_KEY, 0..u64::MAX)
                 .await
-                .and_then(|archive| match archive {
-                    Some(archive) => <Archive<AlignedBytes> as Deserialize>::deserialize(&archive)
-                        .and_then(|archive| archive.deserialize_untrusted::<SpamClassifier>())
-                        .map(Some),
-                    None => Ok(None),
-                })
                 .caused_by(trc::location!())?
-            {
-                let last_trained_at = match &model {
-                    SpamClassifier::FhClassifier {
-                        last_trained_at, ..
-                    } => Some(*last_trained_at),
-                    SpamClassifier::CcfhClassifier {
-                        last_trained_at, ..
-                    } => Some(*last_trained_at),
-                    SpamClassifier::Disabled => None,
-                };
-
-                trc::event!(
-                    Spam(SpamEvent::ModelLoaded),
-                    Details = last_trained_at.map(trc::Value::Timestamp),
-                );
-                self.inner.data.spam_classifier.store(Arc::new(model));
-            } else {
+            else {
                 trc::event!(Spam(SpamEvent::ModelNotFound));
-            }
+                return Ok(());
+            };
+            let archive = archive.into_vec().await.caused_by(trc::location!())?;
+            let model = <Archive<AlignedBytes> as Deserialize>::deserialize(&archive)
+                .and_then(|archive| archive.deserialize_untrusted::<SpamClassifier>())
+                .caused_by(trc::location!())?;
+
+            let last_trained_at = match &model {
+                SpamClassifier::FhClassifier {
+                    last_trained_at, ..
+                } => Some(*last_trained_at),
+                SpamClassifier::CcfhClassifier {
+                    last_trained_at, ..
+                } => Some(*last_trained_at),
+                SpamClassifier::Disabled => None,
+            };
+
+            trc::event!(
+                Spam(SpamEvent::ModelLoaded),
+                Details = last_trained_at.map(trc::Value::Timestamp),
+            );
+            self.inner.data.spam_classifier.store(Arc::new(model));
         }
 
         Ok(())

@@ -645,7 +645,11 @@ impl common::network::SessionManager for SessionManager {
                                 .headers()
                                 .get(CONTENT_ENCODING)
                                 .is_some_and(|encoding| encoding.to_str().unwrap() == "aes128gcm");
-                            let body = fetch_body(&mut req, 1024 * 1024, 0).await.unwrap();
+                            let body = fetch_body(&mut req, 1024 * 1024, 0)
+                                .await
+                                .unwrap()
+                                .take_vec()
+                                .unwrap();
                             let message = serde_json::from_slice::<PushMessage>(&if is_encrypted {
                                 ece::decrypt(&push.keypair, &push.auth_secret, &body).unwrap()
                             } else {

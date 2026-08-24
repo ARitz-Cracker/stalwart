@@ -519,7 +519,11 @@ pub async fn test(test: &mut TestServer) {
     // Test tenant quotas
     let (message_blob, _) = test
         .server
-        .put_temporary_blob(user_x_id.document_id(), TEST_MESSAGE.as_bytes(), 60)
+        .put_temporary_blob(
+            user_x_id.document_id(),
+            Vec::from(TEST_MESSAGE.as_bytes()).into(),
+            60,
+        )
         .await
         .unwrap();
     assert_eq!(

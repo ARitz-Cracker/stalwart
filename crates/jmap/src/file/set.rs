@@ -104,12 +104,12 @@ impl FileNodeSet for Server {
                                     )),
                                 );
                                 continue;
-                            } else if let Some(blob_contents) = self
+                            } else if let Some(blob_contents_len) = self
                                 .blob_store()
-                                .get_blob(blob_id.hash.as_slice(), 0..usize::MAX)
+                                .get_blob_length(blob_id.hash.as_slice())
                                 .await?
                             {
-                                file_details.size = blob_contents.len() as u32;
+                                file_details.size = blob_contents_len;
                             } else {
                                 response.not_created.append(
                                     id,
@@ -366,12 +366,12 @@ impl FileNodeSet for Server {
                                     )),
                                 );
                                 continue;
-                            } else if let Some(blob_contents) = self
+                            } else if let Some(blob_contents_len) = self
                                 .blob_store()
-                                .get_blob(blob_id.hash.as_slice(), 0..usize::MAX)
+                                .get_blob_length(blob_id.hash.as_slice())
                                 .await?
                             {
-                                file_details.size = blob_contents.len() as u32;
+                                file_details.size = blob_contents_len;
                             } else {
                                 response.not_updated.append(
                                     id,
@@ -669,7 +669,7 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
 ) -> Result<UpdateResult, SetError<FileNodeProperty>> {
     let mut has_acl_changes = false;
     let mut blob_id = None;
-    let mut pending_size: Option<u32> = None;
+    let mut pending_size: Option<u64> = None;
     let mut pending_type: Option<Option<String>> = None;
     let mut pending_executable: Option<bool> = None;
     let mut modified_set = false;
@@ -721,12 +721,7 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
             (FileNodeProperty::BlobId, Value::Null) => {}
             (FileNodeProperty::Size, Value::Number(value)) => {
                 let value = value.cast_to_u64();
-                if value > u32::MAX as u64 {
-                    return Err(SetError::invalid_properties()
-                        .with_property(FileNodeProperty::Size)
-                        .with_description("size is too large."));
-                }
-                pending_size = Some(value as u32);
+                pending_size = Some(value);
             }
             (FileNodeProperty::Size, Value::Null) => {
                 pending_size = Some(0);

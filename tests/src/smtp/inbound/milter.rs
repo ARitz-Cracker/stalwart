@@ -809,7 +809,7 @@ pub fn spawn_mock_mta_hook_server() -> watch::Sender<bool> {
 
                                     async move {
 
-                                        let request = serde_json::from_slice::<Request>(&fetch_body(&mut req, 1024 * 1024,0).await.unwrap())
+                                        let request = serde_json::from_slice::<Request>(&fetch_body(&mut req, 1024 * 1024,0).await.unwrap().take_vec().unwrap())
                                         .unwrap();
                                         let response = handle_mta_hook(request, tests);
 

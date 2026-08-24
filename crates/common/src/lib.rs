@@ -328,7 +328,7 @@ pub struct DavResourcePath<'x> {
 pub enum DavResourceMetadata {
     File {
         name: String,
-        size: Option<u32>,
+        size: Option<u64>,
         parent_id: Option<u32>,
         acls: TinyVec<[AclGrant; 2]>,
     },

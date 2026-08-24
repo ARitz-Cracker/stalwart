@@ -53,6 +53,7 @@ use registry::schema::enums::Permission;
 use std::time::Instant;
 use trc::{EventType, LimitEvent, StoreEvent, WebDavEvent};
 use types::collection::Collection;
+use utils::jumbo_bytes::JumboBytesMut;
 
 pub trait DavRequestHandler: Sync + Send {
     fn handle_dav_request(
@@ -72,7 +73,7 @@ pub(crate) trait DavRequestDispatcher: Sync + Send {
         access_token: AccessToken,
         resource: DavResourceName,
         method: DavMethod,
-        body: Vec<u8>,
+        body: JumboBytesMut,
     ) -> impl Future<Output = crate::Result<HttpResponse>> + Send;
 }
 
@@ -83,12 +84,17 @@ impl DavRequestDispatcher for Server {
         access_token: AccessToken,
         resource: DavResourceName,
         method: DavMethod,
-        body: Vec<u8>,
+        body: JumboBytesMut,
     ) -> crate::Result<HttpResponse> {
         // Dispatch
         match method {
             DavMethod::PROPFIND => {
-                let request = PropFind::parse(&mut Tokenizer::new(&body))?;
+                let request = PropFind::parse(&mut Tokenizer::new(
+                    &body
+                        .into_vec(self.core.groupware.max_request_size as u64)
+                        .await
+                        .map_err(|err| trc::WebDavEvent::Propfind.reason(err))?,
+                ))?;
 
                 self.handle_propfind_request(&access_token, headers, request)
                     .await
@@ -150,7 +156,12 @@ impl DavRequestDispatcher for Server {
                 }
                 DavResourceName::Principal => Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED)),
             },
-            DavMethod::REPORT => match Report::parse(&mut Tokenizer::new(&body))? {
+            DavMethod::REPORT => match Report::parse(&mut Tokenizer::new(
+                &body
+                    .into_vec(self.core.groupware.max_request_size as u64)
+                    .await
+                    .map_err(|err| trc::WebDavEvent::Report.reason(err))?,
+            ))? {
                 Report::SyncCollection(sync_collection) => {
                     // Validate permissions
                     let access_token =
@@ -326,7 +337,12 @@ impl DavRequestDispatcher for Server {
                 }
             },
             DavMethod::PROPPATCH => {
-                let request = PropertyUpdate::parse(&mut Tokenizer::new(&body))?;
+                let request = PropertyUpdate::parse(&mut Tokenizer::new(
+                    &body
+                        .into_vec(self.core.groupware.max_request_size as u64)
+                        .await
+                        .map_err(|err| trc::WebDavEvent::Proppatch.reason(err))?,
+                ))?;
                 match resource {
                     DavResourceName::Card => {
                         // Validate permissions
@@ -359,7 +375,12 @@ impl DavRequestDispatcher for Server {
             }
             DavMethod::MKCOL => {
                 let request = if !body.is_empty() {
-                    Some(MkCol::parse(&mut Tokenizer::new(&body))?)
+                    Some(MkCol::parse(&mut Tokenizer::new(
+                        &body
+                            .into_vec(self.core.groupware.max_request_size as u64)
+                            .await
+                            .map_err(|err| trc::WebDavEvent::Mkcol.reason(err))?,
+                    ))?)
                 } else {
                     None
                 };
@@ -438,7 +459,9 @@ impl DavRequestDispatcher for Server {
                     self.handle_card_update_request(
                         &access_token,
                         headers,
-                        body,
+                        body.into_vec(self.core.groupware.max_request_size as u64)
+                            .await
+                            .map_err(|err| trc::WebDavEvent::Put.reason(err))?,
                         matches!(method, DavMethod::PATCH),
                     )
                     .await
@@ -450,7 +473,9 @@ impl DavRequestDispatcher for Server {
                     self.handle_calendar_update_request(
                         &access_token,
                         headers,
-                        body,
+                        body.into_vec(self.core.groupware.max_request_size as u64)
+                            .await
+                            .map_err(|err| trc::WebDavEvent::Put.reason(err))?,
                         matches!(method, DavMethod::PATCH),
                     )
                     .await
@@ -473,8 +498,14 @@ impl DavRequestDispatcher for Server {
                     let access_token =
                         access_token.assert_has_permission(Permission::DavCalFreeBusyQuery)?;
 
-                    self.handle_scheduling_post_request(&access_token, headers, body)
-                        .await
+                    self.handle_scheduling_post_request(
+                        &access_token,
+                        headers,
+                        body.into_vec(self.core.groupware.max_request_size as u64)
+                            .await
+                            .map_err(|err| trc::WebDavEvent::Put.reason(err))?,
+                    )
+                    .await
                 }
                 DavResourceName::Principal => Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED)),
             },
@@ -527,7 +558,12 @@ impl DavRequestDispatcher for Server {
                     self.handle_calendar_mkcol_request(
                         &access_token,
                         headers,
-                        Some(MkCol::parse(&mut Tokenizer::new(&body))?),
+                        Some(MkCol::parse(&mut Tokenizer::new(
+                            &body
+                                .into_vec(self.core.groupware.max_request_size as u64)
+                                .await
+                                .map_err(|err| trc::WebDavEvent::Mkcalendar.reason(err))?,
+                        ))?),
                     )
                     .await
                 }
@@ -546,7 +582,12 @@ impl DavRequestDispatcher for Server {
                     &access_token,
                     headers,
                     if !body.is_empty() {
-                        LockRequest::Lock(LockInfo::parse(&mut Tokenizer::new(&body))?)
+                        LockRequest::Lock(LockInfo::parse(&mut Tokenizer::new(
+                            &body
+                                .into_vec(self.core.groupware.max_request_size as u64)
+                                .await
+                                .map_err(|err| trc::WebDavEvent::Lock.reason(err))?,
+                        ))?)
                     } else {
                         LockRequest::Refresh
                     },
@@ -577,7 +618,12 @@ impl DavRequestDispatcher for Server {
                 self.handle_acl_request(
                     &access_token,
                     headers,
-                    Acl::parse(&mut Tokenizer::new(&body))?,
+                    Acl::parse(&mut Tokenizer::new(
+                        &body
+                            .into_vec(self.core.groupware.max_request_size as u64)
+                            .await
+                            .map_err(|err| trc::WebDavEvent::Acl.reason(err))?,
+                    ))?,
                 )
                 .await
             }
@@ -606,7 +652,15 @@ impl DavRequestHandler for Server {
             if let Some(body) = fetch_body(
                 &mut request,
                 if !access_token.has_permission(Permission::UnlimitedUploads) {
-                    self.core.groupware.max_request_size
+                    // Only file uploads truly support being larger-than-ram. Everything else assumes that the request
+                    // body is in-memory and does some kind of processing with the body in a non-streaming fashion.
+                    match (resource, method) {
+                        (
+                            DavResourceName::File,
+                            DavMethod::PUT | DavMethod::POST | DavMethod::PATCH,
+                        ) => self.core.groupware.max_file_size,
+                        _ => self.core.groupware.max_request_size as u64,
+                    }
                 } else {
                     0
                 },
@@ -625,7 +679,7 @@ impl DavRequestHandler for Server {
                 return HttpResponse::new(StatusCode::PAYLOAD_TOO_LARGE);
             }
         } else {
-            Vec::new()
+            Vec::new().into()
         };
 
         // Parse headers

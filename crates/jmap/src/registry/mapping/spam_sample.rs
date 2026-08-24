@@ -81,7 +81,7 @@ pub(crate) async fn spam_sample_set(
             continue;
         }
 
-        let Some(bytes) = set
+        let Some((bytes_stream, bytes_len)) = set
             .server
             .blob_download(&sample.blob_id, set.access_token)
             .await?
@@ -95,7 +95,7 @@ pub(crate) async fn spam_sample_set(
             continue;
         };
 
-        if bytes.len() > set.server.core.email.mail_max_size {
+        if bytes_len > set.server.core.email.mail_max_size as u64 {
             set.response.not_created.append(
                 id,
                 SetError::invalid_properties()
@@ -107,6 +107,7 @@ pub(crate) async fn spam_sample_set(
             );
             continue;
         }
+        let bytes = bytes_stream.into_vec().await.caused_by(trc::location!())?;
 
         let Some(message) = MessageParser::new().parse(&bytes) else {
             set.response.not_created.append(

@@ -25,7 +25,12 @@ use store::{
     write::{AlignedBytes, Archive},
 };
 use trc::AddContext;
-use types::{blob::BlobClass, collection::Collection, id::Id, type_state::DataType};
+use types::{
+    blob::{BlobClass, BlobSection},
+    collection::Collection,
+    id::Id,
+    type_state::DataType,
+};
 use utils::map::vec_map::VecMap;
 
 pub trait BlobOperations: Sync + Send {
@@ -61,37 +66,34 @@ impl BlobOperations for Server {
             not_found: not_found_ids,
         };
 
-        let range_from = request.arguments.offset.unwrap_or(0);
-        let range_to = request
-            .arguments
-            .length
-            .map(|length| range_from.saturating_add(length))
-            .unwrap_or(usize::MAX);
-
-        for blob_id in ids {
-            if let Some(bytes) = self.blob_download(&blob_id, access_token).await? {
+        for mut blob_id in ids {
+            if request.arguments.offset.is_some() || request.arguments.length.is_some() {
+                // blob_download can already slice the blob for us, let's just re-use that functionality.
+                blob_id.section = Some(BlobSection {
+                    offset_start: request.arguments.offset.unwrap_or(0),
+                    size: request.arguments.length.unwrap_or(usize::MAX),
+                    encoding: 0, // don't encode here
+                })
+            }
+            if let Some((bytes_stream, bytes_len)) =
+                self.blob_download(&blob_id, access_token).await?
+            {
+                // FIXME:
+                // 1. Bail if the `bytes_len` exceeds a certain size
+                // 2. Convert to a JumboBytesMut so the hashers can do their thing
+                // 3. Use some kind of streaming encoder for the JSON responses.
+                let bytes = bytes_stream.into_vec().await.caused_by(trc::location!())?;
                 let mut blob = Map::with_capacity(properties.len());
-                let bytes_range = if range_from == 0 && range_to == usize::MAX {
-                    &bytes[..]
-                } else {
-                    let range_to = if range_to != usize::MAX && range_to > bytes.len() {
-                        blob.insert_unchecked(BlobProperty::IsTruncated, true);
-                        bytes.len()
-                    } else {
-                        range_to
-                    };
-                    bytes.get(range_from..range_to).unwrap_or_default()
-                };
 
                 for property in &properties {
                     let mut property = property.clone();
                     let value: Value<'static, BlobProperty, BlobValue> = match &property {
                         BlobProperty::Id => Value::Element(BlobValue::BlobId(blob_id.clone())),
-                        BlobProperty::Size => bytes.len().into(),
+                        BlobProperty::Size => Value::Number(bytes_len.into()),
                         BlobProperty::Digest(digest) => match digest {
                             DigestProperty::Sha => {
                                 let mut hasher = Sha1::new();
-                                hasher.update(bytes_range);
+                                hasher.update(&bytes);
                                 String::from_utf8(
                                     base64_encode(&hasher.finalize()[..]).unwrap_or_default(),
                                 )
@@ -99,7 +101,7 @@ impl BlobOperations for Server {
                             }
                             DigestProperty::Sha256 => {
                                 let mut hasher = Sha256::new();
-                                hasher.update(bytes_range);
+                                hasher.update(&bytes);
                                 String::from_utf8(
                                     base64_encode(&hasher.finalize()[..]).unwrap_or_default(),
                                 )
@@ -107,7 +109,7 @@ impl BlobOperations for Server {
                             }
                             DigestProperty::Sha512 => {
                                 let mut hasher = Sha512::new();
-                                hasher.update(bytes_range);
+                                hasher.update(&bytes);
                                 String::from_utf8(
                                     base64_encode(&hasher.finalize()[..]).unwrap_or_default(),
                                 )
@@ -116,7 +118,7 @@ impl BlobOperations for Server {
                         }
                         .into(),
                         BlobProperty::Data(data) => match data {
-                            DataProperty::AsText => match std::str::from_utf8(bytes_range) {
+                            DataProperty::AsText => match std::str::from_utf8(&bytes) {
                                 Ok(text) => text.to_string().into(),
                                 Err(_) => {
                                     blob.insert_unchecked(BlobProperty::IsEncodingProblem, true);
@@ -124,11 +126,11 @@ impl BlobOperations for Server {
                                 }
                             },
                             DataProperty::AsBase64 => {
-                                String::from_utf8(base64_encode(bytes_range).unwrap_or_default())
+                                String::from_utf8(base64_encode(&bytes).unwrap_or_default())
                                     .unwrap()
                                     .into()
                             }
-                            DataProperty::Default => match std::str::from_utf8(bytes_range) {
+                            DataProperty::Default => match std::str::from_utf8(&bytes) {
                                 Ok(text) => {
                                     property = BlobProperty::Data(DataProperty::AsText);
                                     text.to_string().into()
@@ -136,11 +138,9 @@ impl BlobOperations for Server {
                                 Err(_) => {
                                     property = BlobProperty::Data(DataProperty::AsBase64);
                                     blob.insert_unchecked(BlobProperty::IsEncodingProblem, true);
-                                    String::from_utf8(
-                                        base64_encode(bytes_range).unwrap_or_default(),
-                                    )
-                                    .unwrap()
-                                    .into()
+                                    String::from_utf8(base64_encode(&bytes).unwrap_or_default())
+                                        .unwrap()
+                                        .into()
                                 }
                             },
                         },

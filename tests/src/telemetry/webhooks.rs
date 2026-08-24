@@ -193,7 +193,7 @@ fn spawn_mock_webhook_endpoint() -> Arc<MockWebhookEndpoint> {
                                     async move {
                                         // Verify HMAC signature
                                         let key = hmac::Key::new(hmac::HMAC_SHA256, "ovos-moles".as_bytes());
-                                        let body = fetch_body(&mut req, usize::MAX, 0).await.unwrap();
+                                        let body = fetch_body(&mut req, u64::MAX, 0).await.unwrap().into_vec(u64::MAX).await.unwrap();
                                         let tag = STANDARD.decode(req.headers().get("X-Signature").unwrap().to_str().unwrap()).unwrap();
                                         hmac::verify(&key, &body, &tag).expect("Invalid signature");
 

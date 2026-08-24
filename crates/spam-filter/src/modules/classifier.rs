@@ -130,7 +130,7 @@ impl SpamClassifier for Server {
         let mut trainer = if !retrain
             && let Some(trainer) = self
                 .blob_store()
-                .get_blob(SPAM_TRAINER_KEY, 0..usize::MAX)
+                .get_blob_vec(SPAM_TRAINER_KEY, 0..u64::MAX)
                 .await
                 .and_then(|archive| match archive {
                     Some(archive) => <Archive<AlignedBytes> as Deserialize>::deserialize(&archive)
@@ -372,7 +372,7 @@ impl SpamClassifier for Server {
                 };
                 let Some(raw_message) = self
                     .blob_store()
-                    .get_blob(sample.sample.hash.as_slice(), 0..usize::MAX)
+                    .get_blob_vec(sample.sample.hash.as_slice(), 0..u64::MAX)
                     .await
                     .caused_by(trc::location!())?
                 else {
@@ -532,9 +532,10 @@ impl SpamClassifier for Server {
         self.blob_store()
             .put_blob(
                 SPAM_TRAINER_KEY,
-                &Archiver::new(trainer)
+                Archiver::new(trainer)
                     .serialize()
-                    .caused_by(trc::location!())?,
+                    .caused_by(trc::location!())?
+                    .into(),
                 self.core.email.compression,
             )
             .await
@@ -542,7 +543,7 @@ impl SpamClassifier for Server {
         self.blob_store()
             .put_blob(
                 SPAM_CLASSIFIER_KEY,
-                &classifier.serialize().caused_by(trc::location!())?,
+                classifier.serialize().caused_by(trc::location!())?.into(),
                 self.core.email.compression,
             )
             .await

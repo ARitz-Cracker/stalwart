@@ -32,7 +32,7 @@ parking_lot = "0.12"
 lru-cache = { version = "0.1.2", optional = true }
 num_cpus = { version = "1.17", optional = true }
 blake3 = "1.8"
-lz4_flex = { version = "0.14", features = ["alloc"], default-features = false }
+lz4_flex = { version = "0.14", features = ["alloc", "frame"], default-features = false }
 deadpool-postgres = { version = "0.14", optional = true }
 tokio-postgres = { version = "0.7.18", features = ["with-serde_json-1"], optional = true }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["aws_lc_rs", "tls12"] }
@@ -69,7 +69,7 @@ fdb-chunked-bm = []
 
 # Blob stores
 s3 = ["rust-s3", "dep:reqwest_s3"]
-azure = ["azure_core", "azure_storage", "azure_storage_blobs", "futures"]
+azure = ["azure_core", "azure_storage", "azure_storage_blobs", "futures", "utils/azure_core", "bytes"]
 
 # In-memory stores
 redis = ["dep:redis", "deadpool", "deadpool/rt_tokio_1", "futures"]

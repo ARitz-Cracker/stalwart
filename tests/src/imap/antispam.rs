@@ -138,7 +138,7 @@ pub async fn test(test: &TestServer) {
 pub async fn spam_classifier_model(server: &Server) -> SpamTrainer {
     server
         .blob_store()
-        .get_blob(SPAM_TRAINER_KEY, 0..usize::MAX)
+        .get_blob_vec(SPAM_TRAINER_KEY, 0..u64::MAX)
         .await
         .and_then(|archive| match archive {
             Some(archive) => <Archive<AlignedBytes> as Deserialize>::deserialize(&archive)

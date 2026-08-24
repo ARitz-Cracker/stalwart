@@ -30,7 +30,7 @@ impl IndexableObject for AddressBook {
                 value: (&self.acls).into(),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogContainer {
                 sync_collection: SyncCollection::AddressBook,
@@ -52,7 +52,7 @@ impl IndexableObject for &ArchivedAddressBook {
                     .into(),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogContainer {
                 sync_collection: SyncCollection::AddressBook,
@@ -91,7 +91,7 @@ impl IndexableObject for ContactCard {
                 hash: self.hashes().fold(0, |acc, hash| acc ^ hash),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogItem {
                 sync_collection: SyncCollection::AddressBook,
@@ -125,7 +125,7 @@ impl IndexableObject for &ArchivedContactCard {
                 hash: self.hashes().fold(0, |acc, hash| acc ^ hash),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogItem {
                 sync_collection: SyncCollection::AddressBook,

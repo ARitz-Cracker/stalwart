@@ -48,7 +48,7 @@ pub enum IndexValue<'x> {
         value: BlobHash,
     },
     Quota {
-        used: u32,
+        used: u64,
     },
     LogContainer {
         sync_collection: SyncCollection,

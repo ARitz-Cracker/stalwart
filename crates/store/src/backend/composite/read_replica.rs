@@ -11,6 +11,7 @@
 use crate::{
     Deserialize, IterateParams, Key, Store, ValueKey,
     search::{IndexDocument, SearchComparator, SearchDocumentId, SearchFilter, SearchQuery},
+    stream::BlobReadStream,
     write::{AssignedIds, Batch, SearchIndex, ValueClass},
 };
 use std::{
@@ -64,7 +65,11 @@ impl SQLReadReplica {
         Err(last_error.unwrap())
     }
 
-    pub async fn get_blob(&self, key: &[u8], range: Range<usize>) -> trc::Result<Option<Vec<u8>>> {
+    pub async fn get_blob(
+        &self,
+        key: &[u8],
+        range: Range<u64>,
+    ) -> trc::Result<Option<BlobReadStream>> {
         self.run_op(move |store| {
             let range = range.clone();
 
@@ -76,6 +81,19 @@ impl SQLReadReplica {
                     Store::MySQL(store) => store.get_blob(key, range).await,
                     _ => panic!("Invalid store type"),
                 }
+            }
+        })
+        .await
+    }
+
+    pub async fn get_blob_length(&self, key: &[u8]) -> trc::Result<Option<u64>> {
+        self.run_op(move |store| async move {
+            match store {
+                #[cfg(feature = "postgres")]
+                Store::PostgreSQL(store) => store.get_blob_length(key).await,
+                #[cfg(feature = "mysql")]
+                Store::MySQL(store) => store.get_blob_length(key).await,
+                _ => panic!("Invalid store type"),
             }
         })
         .await

@@ -680,11 +680,11 @@ impl SieveScriptIngest for Server {
         let script_offset = u32::from(unarchived_script.size) as usize;
 
         // Obtain the sieve script blob
-        let script_bytes = self
+        let (script_stream, _) = self
             .core
             .storage
             .blob
-            .get_blob(unarchived_script.blob_hash.0.as_ref(), 0..usize::MAX)
+            .get_blob(unarchived_script.blob_hash.0.as_ref(), 0..u64::MAX)
             .await
             .caused_by(trc::location!())?
             .ok_or_else(|| {
@@ -693,6 +693,7 @@ impl SieveScriptIngest for Server {
                     .caused_by(trc::location!())
                     .document_id(document_id)
             })?;
+        let script_bytes = script_stream.into_vec().await.caused_by(trc::location!())?;
 
         // Obtain the precompiled script
         if let Some(script) = script_bytes.get(script_offset..).and_then(|bytes| {
@@ -727,7 +728,7 @@ impl SieveScriptIngest for Server {
 
                     // Store updated blob
                     let (new_blob_hash, new_blob_hold) = self
-                        .put_temporary_blob(account_id, &updated_sieve_bytes, 60)
+                        .put_temporary_blob(account_id, updated_sieve_bytes.into(), 60)
                         .await?;
                     let mut new_script_object =
                         rkyv::deserialize(unarchived_script).caused_by(trc::location!())?;

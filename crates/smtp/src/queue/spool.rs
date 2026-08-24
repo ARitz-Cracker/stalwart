@@ -424,7 +424,7 @@ impl MessageWrapper {
             .blob_store()
             .put_blob(
                 self.message.blob_hash.as_slice(),
-                message.as_ref(),
+                message.into_owned().into(),
                 server.core.email.compression,
             )
             .await

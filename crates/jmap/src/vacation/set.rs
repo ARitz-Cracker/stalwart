@@ -269,7 +269,7 @@ impl VacationResponseSet for Server {
                 let (blob_hash, blob_hold) = self
                     .put_temporary_blob(
                         account_id,
-                        &self.build_script(obj.changes_mut().unwrap())?,
+                        self.build_script(obj.changes_mut().unwrap())?.into(),
                         60,
                     )
                     .await?;

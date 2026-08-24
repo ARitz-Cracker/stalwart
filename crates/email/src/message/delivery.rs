@@ -71,7 +71,7 @@ impl MailDelivery for Server {
             .core
             .storage
             .blob
-            .get_blob(message.message_blob.as_slice(), 0..usize::MAX)
+            .get_blob_vec(message.message_blob.as_slice(), 0..u64::MAX)
             .await
         {
             Ok(Some(raw_message)) => raw_message,

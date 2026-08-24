@@ -127,7 +127,7 @@ impl<T: SessionStream> Session<T> {
             // Write script blob
             let (blob_hash, blob_hold) = self
                 .server
-                .put_temporary_blob(account_id, &script_bytes, 60)
+                .put_temporary_blob(account_id, script_bytes.into(), 60)
                 .await?;
 
             // Write record
@@ -168,7 +168,7 @@ impl<T: SessionStream> Session<T> {
             // Write script blob
             let (blob_hash, blob_hold) = self
                 .server
-                .put_temporary_blob(account_id, &script_bytes, 60)
+                .put_temporary_blob(account_id, script_bytes.into(), 60)
                 .await?;
 
             // Write record

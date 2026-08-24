@@ -47,7 +47,7 @@ impl ContactCardParse for Server {
 
         for blob_id in request.blob_ids.into_valid() {
             // Fetch raw message to parse
-            let raw_vcard = match self.blob_download(&blob_id, access_token).await? {
+            let raw_vcard = match self.blob_download_vec(&blob_id, access_token).await? {
                 Some(raw_vcard) => raw_vcard,
                 None => {
                     response.not_found.push(MaybeInvalid::Value(blob_id));

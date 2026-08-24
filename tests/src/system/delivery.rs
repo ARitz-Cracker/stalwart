@@ -533,7 +533,7 @@ END:VCARD
             let partial_message = test
                 .server
                 .blob_store()
-                .get_blob(metadata.blob_hash.0.as_ref(), 0..usize::MAX)
+                .get_blob_vec(metadata.blob_hash.0.as_ref(), 0..u64::MAX)
                 .await
                 .unwrap()
                 .unwrap();
@@ -556,7 +556,7 @@ END:VCARD
             );
             let full_message = String::from_utf8(
                 test.server
-                    .blob_download(
+                    .blob_download_vec(
                         &BlobId {
                             hash: metadata.blob_hash,
                             class: BlobClass::Linked {

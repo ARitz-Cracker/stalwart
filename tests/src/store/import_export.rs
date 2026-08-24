@@ -48,7 +48,7 @@ pub async fn test(test: &TestServer) {
         blob_hashes.push(hash.clone());
         test.server
             .blob_store()
-            .put_blob(hash.as_ref(), &data, CompressionAlgo::Lz4)
+            .put_blob(hash.as_ref(), data.clone().into(), CompressionAlgo::Lz4)
             .await
             .unwrap();
         batch.set(ValueClass::Blob(BlobOp::Commit { hash }), vec![]);

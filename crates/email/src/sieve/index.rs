@@ -22,7 +22,9 @@ impl IndexableObject for SieveScript {
                 sync_collection: SyncCollection::SieveScript,
                 prefix: None,
             },
-            IndexValue::Quota { used: self.size },
+            IndexValue::Quota {
+                used: self.size as u64,
+            },
         ]
         .into_iter()
     }
@@ -49,7 +51,7 @@ impl IndexableObject for &ArchivedSieveScript {
                 prefix: None,
             },
             IndexValue::Quota {
-                used: u32::from(self.size),
+                used: self.size.to_native() as u64,
             },
         ]
         .into_iter()

@@ -419,7 +419,7 @@ async fn build_email_document(
 
             let raw_message = server
                 .blob_store()
-                .get_blob(metadata.blob_hash.0.as_slice(), 0..usize::MAX)
+                .get_blob_vec(metadata.blob_hash.0.as_slice(), 0..u64::MAX)
                 .await
                 .caused_by(trc::location!())?
                 .ok_or_else(|| {

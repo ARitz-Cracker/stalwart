@@ -178,7 +178,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         match params
             .server
             .blob_store()
-            .get_blob(message.message.blob_hash.as_slice(), 0..usize::MAX)
+            .get_blob_vec(message.message.blob_hash.as_slice(), 0..u64::MAX)
             .await
         {
             Ok(Some(raw_message)) => {

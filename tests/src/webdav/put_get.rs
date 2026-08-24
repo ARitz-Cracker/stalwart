@@ -252,18 +252,18 @@ pub async fn test(test: &TestServer) {
         (
             "/dav/card/john%40example.com/chunky-card1.vcf",
             TEST_VCARD_1,
-            conf.max_vcard_size,
+            conf.max_vcard_size as u64,
             Some("B:max-resource-size"),
         ),
         (
             "/dav/cal/john%40example.com/chunky-event1.ics",
             TEST_ICAL_1,
-            conf.max_ical_size,
+            conf.max_ical_size as u64,
             Some("A:max-resource-size"),
         ),
     ] {
-        let mut chunky_contents = String::with_capacity(max_size + contents.len());
-        while chunky_contents.len() < max_size {
+        let mut chunky_contents = String::with_capacity((max_size as usize) + contents.len());
+        while chunky_contents.len() < (max_size as usize) {
             chunky_contents.push_str(contents);
         }
         let response = client

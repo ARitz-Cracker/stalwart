@@ -139,7 +139,7 @@ impl EmailImport for Server {
             };
 
             // Fetch raw message to import
-            let raw_message = match self.blob_download(&blob_id, access_token).await? {
+            let raw_message = match self.blob_download_vec(&blob_id, access_token).await? {
                 Some(raw_message) => raw_message,
                 None => {
                     response.not_created.append(

@@ -3367,6 +3367,7 @@ dependencies = [
  "common",
  "compact_str",
  "form_urlencoded",
+ "http-body",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -3374,7 +3375,9 @@ dependencies = [
  "registry",
  "serde",
  "serde_json",
+ "tokio",
  "trc",
+ "utils",
 ]
 
 [[package]]
@@ -8982,6 +8985,7 @@ dependencies = [
  "jmap-tools",
  "rkyv",
  "serde",
+ "tokio",
  "trc",
  "utils",
 ]
@@ -9186,9 +9190,12 @@ version = "0.16.17"
 dependencies = [
  "ahash",
  "arcstr",
+ "async-trait",
  "aws-lc-rs",
+ "azure_core",
  "base64 0.23.1",
  "blake3",
+ "bytes",
  "chrono",
  "compact_str",
  "farmhash",

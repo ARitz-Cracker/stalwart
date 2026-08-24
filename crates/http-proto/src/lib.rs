@@ -15,7 +15,11 @@ pub use form_urlencoded;
 use common::network::ServerInstance;
 use hyper::StatusCode;
 use std::{net::IpAddr, sync::Arc};
+use tokio::io::AsyncRead;
 
+/// Currently io errors are the only error that can happen while data is being fed to the client. If this needs
+/// extending, make sure that whatever type this evolves into implements `From<std::io::Error>`
+pub type HttpResponseBodyError = std::io::Error;
 pub type HttpRequest = hyper::Request<hyper::body::Incoming>;
 
 pub struct JsonResponse<T: serde::Serialize> {
@@ -32,7 +36,7 @@ pub struct HtmlResponse {
 pub enum HttpResponseBody {
     Text(String),
     Binary(Vec<u8>),
-    Stream(http_body_util::combinators::BoxBody<hyper::body::Bytes, hyper::Error>),
+    Stream(http_body_util::combinators::UnsyncBoxBody<hyper::body::Bytes, HttpResponseBodyError>),
     WebsocketUpgrade(String),
     Empty,
 }
@@ -61,7 +65,8 @@ pub struct HttpSessionData {
 pub struct DownloadResponse {
     pub filename: String,
     pub content_type: String,
-    pub blob: Vec<u8>,
+    pub blob: Box<dyn AsyncRead + Send + 'static>,
+    pub content_length: u64,
 }
 
 pub struct JsonProblemResponse(pub StatusCode);

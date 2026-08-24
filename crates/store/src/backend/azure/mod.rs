@@ -5,16 +5,17 @@
  */
 
 use azure_core::error::ErrorKind;
-use azure_core::{ExponentialRetryOptions, RetryOptions, StatusCode};
+use azure_core::{Body, ExponentialRetryOptions, RetryOptions, StatusCode};
 use azure_storage::StorageCredentials;
 use azure_storage_blobs::prelude::{ClientBuilder, ContainerClient};
-use futures::stream::StreamExt;
 use registry::schema::structs::{self};
 use std::sync::Arc;
 use std::{fmt::Display, io::Write, ops::Range};
 use utils::codec::base32_custom::Base32Writer;
+use utils::jumbo_bytes::JumboBytesMut;
 
 use crate::BlobStore;
+use crate::stream::BlobReadStream;
 
 pub struct AzureStore {
     client: ContainerClient,
@@ -58,68 +59,47 @@ impl AzureStore {
     pub(crate) async fn get_blob(
         &self,
         key: &[u8],
-        range: Range<usize>,
-    ) -> trc::Result<Option<Vec<u8>>> {
+        range: Range<u64>,
+    ) -> trc::Result<Option<BlobReadStream>> {
         let blob_client = self.client.blob_client(self.build_key(key));
-
         let mut stream = blob_client.get();
-        let mut buf = if range.end == usize::MAX {
+        if range.end == u64::MAX {
             // Let's turn this into a proper RangeFrom.
             stream = stream.range(range.start..);
-            // We don't know how big to expect the result to be.
-            Vec::new()
         } else {
             stream = stream.range(range.clone());
-            Vec::with_capacity(range.end - range.start)
         };
-        let mut stream = stream.into_stream();
+        BlobReadStream::azure_stream(stream.into_stream()).await
+    }
 
-        while let Some(response) = stream.next().await {
-            let err = match response {
-                Ok(chunks) => {
-                    let mut chunks = chunks.data;
-                    let mut err = None;
-                    while let Some(chunk) = chunks.next().await {
-                        match chunk {
-                            Ok(ref data) => {
-                                buf.extend(data);
-                            }
-                            Err(e) => {
-                                err = Some(e);
-                                break;
-                            }
-                        }
-                    }
-                    err
-                }
-                Err(e) => Some(e),
-            };
-
-            if let Some(e) = err {
-                return if matches!(
+    pub(crate) async fn get_blob_length(&self, key: &[u8]) -> trc::Result<Option<u64>> {
+        let blob_client = self.client.blob_client(self.build_key(key));
+        match blob_client.get_properties().await {
+            Err(e)
+                if matches!(
                     e.kind(),
                     ErrorKind::HttpResponse {
                         status: StatusCode::NotFound,
                         ..
                     }
-                ) {
-                    Ok(None)
-                } else {
-                    Err(trc::StoreEvent::AzureError.reason(e))
-                };
+                ) =>
+            {
+                Ok(None)
             }
+            Err(e) => Err(trc::StoreEvent::AzureError.reason(e)),
+            // Now this is an adventure
+            Ok(response) => Ok(Some(response.blob.properties.content_length)),
         }
-
-        Ok(Some(buf))
     }
 
-    pub(crate) async fn put_blob(&self, key: &[u8], data: &[u8]) -> trc::Result<()> {
+    pub(crate) async fn put_blob(&self, key: &[u8], data: JumboBytesMut) -> trc::Result<()> {
+        let mut data = data.into_read_only().await;
         let blob_client = self.client.blob_client(self.build_key(key));
 
-        // We unfortunately have to make a copy of `data`. This is because the Azure SDK wants to
-        // coerce the body into a value of type azure_core::Body, which doesn't have a lifetime
-        // parameter and so cannot hold any non-static references (directly or indirectly).
-        let data = data.to_vec();
+        let data = match data.take_bytes() {
+            Some(bytes) => Body::Bytes(bytes),
+            None => Body::SeekableStream(Box::new(data)),
+        };
 
         blob_client
             .put_block_blob(data)
