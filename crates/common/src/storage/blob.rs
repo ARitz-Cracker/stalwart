@@ -19,6 +19,7 @@ use types::{
     blob::{BlobClass, BlobId, BlobSection},
     blob_hash::BlobHash,
 };
+use utils::jumbo_bytes::JumboBytesMut;
 
 const COUNT_BYTES: u32 = 20;
 const COUNT_SHIFT: u32 = 64 - COUNT_BYTES;
@@ -33,7 +34,7 @@ impl Server {
     pub async fn blob_has_quota(
         &self,
         account_id: u32,
-        bytes: usize,
+        bytes: u64,
     ) -> trc::Result<BlobQuotaStatus> {
         if self.core.jmap.upload_tmp_quota_size > 0 || self.core.jmap.upload_tmp_quota_amount > 0 {
             let now = now();
@@ -78,9 +79,16 @@ impl Server {
     }
 
     #[allow(clippy::blocks_in_conditions)]
-    pub async fn put_jmap_blob(&self, account_id: u32, data: &[u8]) -> trc::Result<BlobId> {
+    pub async fn put_jmap_blob(
+        &self,
+        account_id: u32,
+        mut data: JumboBytesMut,
+    ) -> trc::Result<BlobId> {
         // First reserve the hash
-        let hash = BlobHash::generate(data);
+        let hash = BlobHash::generate_from_stream(&mut data)
+            .await
+            .caused_by(trc::location!())?;
+
         let mut batch = BatchBuilder::new();
         let until = now() + self.core.jmap.upload_tmp_ttl;
 
@@ -139,11 +147,13 @@ impl Server {
     pub async fn put_temporary_blob(
         &self,
         account_id: u32,
-        data: &[u8],
+        mut data: JumboBytesMut,
         hold_for: u64,
     ) -> trc::Result<(BlobHash, BlobOp)> {
         // First reserve the hash
-        let hash = BlobHash::generate(data);
+        let hash = BlobHash::generate_from_stream(&mut data)
+            .await
+            .caused_by(trc::location!())?;
         let mut batch = BatchBuilder::new();
         let until = now() + hold_for;
 
@@ -203,17 +213,23 @@ impl Server {
         hash: &BlobHash,
         section: &BlobSection,
     ) -> trc::Result<Option<Vec<u8>>> {
-        Ok(self
+        let Some((blob_segment, _)) = self
             .blob_store()
             .get_blob(
                 hash.as_slice(),
-                (section.offset_start)..(section.offset_start.saturating_add(section.size)),
+                (section.offset_start as u64)
+                    ..(section.offset_start.saturating_add(section.size) as u64),
             )
             .await?
-            .and_then(|bytes| match Encoding::from(section.encoding) {
-                Encoding::None => Some(bytes),
-                Encoding::Base64 => base64_decode(&bytes),
-                Encoding::QuotedPrintable => quoted_printable_decode(&bytes),
-            }))
+        else {
+            return Ok(None);
+        };
+        let bytes = blob_segment.into_vec().await.caused_by(trc::location!())?;
+
+        Ok(match Encoding::from(section.encoding) {
+            Encoding::None => Some(bytes),
+            Encoding::Base64 => base64_decode(&bytes),
+            Encoding::QuotedPrintable => quoted_printable_decode(&bytes),
+        })
     }
 }

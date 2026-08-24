@@ -20,9 +20,7 @@ impl IndexableObject for FileNode {
                 prefix: None,
                 sync_collection: SyncCollection::FileNode,
             },
-            IndexValue::Quota {
-                used: self.size() as u32,
-            },
+            IndexValue::Quota { used: self.size() },
         ]);
 
         if let Some(file) = &self.file {
@@ -52,14 +50,12 @@ impl IndexableObject for &ArchivedFileNode {
                 prefix: None,
                 sync_collection: SyncCollection::FileNode,
             },
-            IndexValue::Quota {
-                used: self.size() as u32,
-            },
+            IndexValue::Quota { used: self.size() },
         ]);
 
-        if let Some(file) = self.file.as_ref() {
+        if let Some(blob_hash) = self.file.blob_hash() {
             values.extend([IndexValue::Blob {
-                value: (&file.blob_hash).into(),
+                value: blob_hash.into(),
             }]);
         }
 
@@ -74,24 +70,21 @@ impl IndexableAndSerializableObject for FileNode {
 }
 
 impl FileNode {
-    pub fn size(&self) -> usize {
-        self.dead_properties.size()
-            + self.display_name.as_ref().map_or(0, |n| n.len())
-            + self.name.len()
-            + self.file.as_ref().map_or(0, |f| f.size as usize)
-            + std::mem::size_of::<FileNode>()
+    pub fn size(&self) -> u64 {
+        self.dead_properties.size() as u64
+            + self.display_name.as_ref().map_or(0, |n| n.len() as u64)
+            + self.name.len() as u64
+            + self.file.as_ref().map_or(0, |f| f.size)
+            + std::mem::size_of::<FileNode>() as u64
     }
 }
 
 impl ArchivedFileNode {
-    pub fn size(&self) -> usize {
-        self.dead_properties.size()
-            + self.display_name.as_ref().map_or(0, |n| n.len())
-            + self.name.len()
-            + self
-                .file
-                .as_ref()
-                .map_or(0, |f| f.size.to_native() as usize)
-            + std::mem::size_of::<FileNode>()
+    pub fn size(&self) -> u64 {
+        self.dead_properties.size() as u64
+            + self.display_name.as_ref().map_or(0, |n| n.len()) as u64
+            + self.name.len() as u64
+            + self.file.size().unwrap_or_default()
+            + std::mem::size_of::<FileNode>() as u64
     }
 }

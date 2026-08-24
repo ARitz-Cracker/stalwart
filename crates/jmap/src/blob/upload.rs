@@ -17,6 +17,7 @@ use registry::schema::enums::Permission;
 use std::future::Future;
 use trc::AddContext;
 use types::id::Id;
+use utils::jumbo_bytes::JumboBytesMut;
 
 #[cfg(feature = "test_mode")]
 pub static DISABLE_UPLOAD_QUOTA: std::sync::atomic::AtomicBool =
@@ -33,7 +34,7 @@ pub trait BlobUpload: Sync + Send {
         &self,
         account_id: Id,
         content_type: &str,
-        data: &[u8],
+        data: JumboBytesMut,
         access_token: &AccessToken,
     ) -> impl Future<Output = trc::Result<UploadResponse>> + Send;
 }
@@ -115,7 +116,7 @@ impl BlobUpload for Server {
                                 })
                         } else {
                             self.blob_store()
-                                .get_blob(id.hash.as_slice(), offset..length)
+                                .get_blob_vec(id.hash.as_slice(), (offset as u64)..(length as u64))
                                 .await?
                         };
                         if let Some(bytes) = bytes {
@@ -140,7 +141,7 @@ impl BlobUpload for Server {
                     }
                 };
 
-                if bytes.len() + data.len() < self.core.jmap.upload_max_size {
+                if bytes.len() + data.len() < self.core.jmap.upload_max_size as usize {
                     data.extend(bytes);
                 } else {
                     response.not_created.append(
@@ -166,7 +167,7 @@ impl BlobUpload for Server {
             // Enforce quota
             if !access_token.has_permission(Permission::UnlimitedUploads)
                 && !self
-                    .blob_has_quota(account_id, data.len())
+                    .blob_has_quota(account_id, data.len() as u64)
                     .await
                     .caused_by(trc::location!())?
                     .allowed
@@ -183,12 +184,13 @@ impl BlobUpload for Server {
             }
 
             // Write blob
+            let size = data.len();
             response.created.insert(
                 create_id,
                 BlobUploadResponseObject {
-                    id: self.put_jmap_blob(account_id, &data).await?,
+                    id: self.put_jmap_blob(account_id, data.into()).await?,
                     type_: upload_object.type_,
-                    size: data.len(),
+                    size,
                 },
             );
         }
@@ -200,7 +202,7 @@ impl BlobUpload for Server {
         &self,
         account_id: Id,
         content_type: &str,
-        data: &[u8],
+        data: JumboBytesMut,
         access_token: &AccessToken,
     ) -> trc::Result<UploadResponse> {
         // Limit concurrent uploads
@@ -211,7 +213,7 @@ impl BlobUpload for Server {
         #[cfg(feature = "test_mode")]
         {
             // Used for concurrent upload tests
-            if data == b"sleep" {
+            if data.as_slice() == Some(b"sleep") {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         }
@@ -239,14 +241,15 @@ impl BlobUpload for Server {
             }
         }
 
+        let size = data.len();
         Ok(UploadResponse {
             account_id,
             blob_id: self
-                .put_jmap_blob(account_id.document_id(), data)
+                .put_jmap_blob(account_id.document_id(), data.into())
                 .await
                 .caused_by(trc::location!())?,
             c_type: content_type.to_string(),
-            size: data.len(),
+            size,
         })
     }
 }

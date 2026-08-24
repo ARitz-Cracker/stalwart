@@ -178,12 +178,8 @@ pub async fn destroy_account_blobs(server: &Server, account_id: u32) -> trc::Res
                         ));
                     }
                     Collection::FileNode => {
-                        if let Some(file) = archive.unarchive::<FileNode>()?.file.as_ref() {
-                            delete_keys.push((
-                                collection,
-                                document_id,
-                                BlobHash::from(&file.blob_hash),
-                            ));
+                        if let Some(blob_hash) = archive.unarchive::<FileNode>()?.file.blob_hash() {
+                            delete_keys.push((collection, document_id, BlobHash::from(blob_hash)));
                         }
                     }
                     Collection::SieveScript => {

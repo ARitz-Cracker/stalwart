@@ -168,8 +168,9 @@ impl FormHandler for Server {
                 .unwrap_or_default();
 
             // Reserve and write blob
+            let message_size = message.len() as u64;
             let (message_blob, blob_hold) = self
-                .put_temporary_blob(u32::MAX, &message, 60)
+                .put_temporary_blob(u32::MAX, message.into(), 60)
                 .await
                 .caused_by(trc::location!())?;
 
@@ -187,7 +188,7 @@ impl FormHandler for Server {
                         })
                         .collect(),
                     message_blob,
-                    message_size: message.len() as u64,
+                    message_size,
                     session_id: session.session_id,
                 })
                 .await

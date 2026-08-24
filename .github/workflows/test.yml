@@ -44,6 +44,12 @@ jobs:
       - name: Full-text search Tests
         run: cargo test -p store -- --nocapture
 
+      - name: Groupware Tests
+        run: cargo test -p groupware -- --nocapture
+
+      - name: Utils Tests
+        run: cargo test -p utils -- --nocapture
+
       - name: Directory Tests
         run: cargo test -p tests directory -- --nocapture
 

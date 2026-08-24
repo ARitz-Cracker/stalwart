@@ -191,9 +191,9 @@ impl FileNodeGet for Server {
                     FileNodeProperty::BlobId => {
                         result.insert_unchecked(
                             FileNodeProperty::BlobId,
-                            if let Some(file) = file_node.file.as_ref() {
+                            if let Some(blob_hash) = file_node.file.blob_hash() {
                                 Value::Element(FileNodeValue::BlobId(BlobId::new(
-                                    BlobHash::from(&file.blob_hash),
+                                    BlobHash::from(blob_hash),
                                     BlobClass::Linked {
                                         account_id,
                                         collection: Collection::FileNode.into(),
@@ -208,8 +208,8 @@ impl FileNodeGet for Server {
                     FileNodeProperty::Size => {
                         result.insert_unchecked(
                             FileNodeProperty::Size,
-                            if let Some(file) = file_node.file.as_ref() {
-                                Value::Number(file.size.to_native().into())
+                            if let Some(size) = file_node.file.size() {
+                                Value::Number(size.into())
                             } else {
                                 Value::Null
                             },
@@ -218,14 +218,10 @@ impl FileNodeGet for Server {
                     FileNodeProperty::Type => {
                         result.insert_unchecked(
                             FileNodeProperty::Type,
-                            if let Some(file) = file_node.file.as_ref() {
-                                Value::Str(
-                                    file.media_type
-                                        .as_ref()
-                                        .map(|t| t.to_string())
-                                        .unwrap_or_else(|| "application/octet-stream".to_string())
-                                        .into(),
-                                )
+                            if let Some(media_type) = file_node.file.media_type() {
+                                // Not converting the str to a String here would result in a runtime error on
+                                // _file_node
+                                Value::Str(media_type.to_string().into())
                             } else {
                                 Value::Null
                             },
@@ -234,8 +230,8 @@ impl FileNodeGet for Server {
                     FileNodeProperty::Executable => {
                         result.insert_unchecked(
                             FileNodeProperty::Executable,
-                            if let Some(file) = file_node.file.as_ref() {
-                                Value::Bool(file.executable)
+                            if let Some(executable) = file_node.file.executable() {
+                                Value::Bool(executable)
                             } else {
                                 Value::Null
                             },
@@ -276,10 +272,10 @@ impl FileNodeGet for Server {
                         );
                     }
                     FileNodeProperty::NodeType => {
-                        let node_type = if file_node.file.is_some() {
-                            FileNodeNodeType::File
-                        } else {
+                        let node_type = if file_node.file.is_none() {
                             FileNodeNodeType::Directory
+                        } else {
+                            FileNodeNodeType::File
                         };
                         result.insert_unchecked(
                             FileNodeProperty::NodeType,

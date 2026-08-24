@@ -22,7 +22,7 @@ use store::{
     },
 };
 use types::{collection::Collection, field::Field};
-use utils::{UnwrapFailure, failed};
+use utils::{UnwrapFailure, failed, jumbo_bytes::JumboBytesMutSync};
 
 impl Core {
     pub async fn restore(&self, src: PathBuf) {
@@ -116,7 +116,7 @@ async fn restore_file(store: Store, blob_store: BlobStore, path: &Path) {
         SUBSPACE_BLOBS => {
             while let Some((key, value)) = reader.next() {
                 blob_store
-                    .put_blob(&key, &value, CompressionAlgo::Lz4)
+                    .put_blob(&key, value.into(), CompressionAlgo::Lz4)
                     .await
                     .failed("Failed to write blob");
             }
@@ -130,6 +130,8 @@ async fn restore_file(store: Store, blob_store: BlobStore, path: &Path) {
                     }),
                     u64::from_le_bytes(
                         value
+                            .into_vec(8)
+                            .expect("Failed to deserialize counter/quota")
                             .try_into()
                             .expect("Failed to deserialize counter/quota"),
                     ) as i64,
@@ -182,7 +184,7 @@ async fn restore_file(store: Store, blob_store: BlobStore, path: &Path) {
                         subspace: reader.subspace,
                         key,
                     }),
-                    value,
+                    value.into_vec(u64::MAX).failed("Failed to build batch"),
                 );
                 if batch.is_large_batch() {
                     store
@@ -239,7 +241,7 @@ impl KeyValueReader {
         Self { file, subspace }
     }
 
-    fn next(&mut self) -> Option<(Vec<u8>, Vec<u8>)> {
+    fn next(&mut self) -> Option<(Vec<u8>, JumboBytesMutSync)> {
         let size = self.read_size()?;
 
         let mut key = vec![0; size as usize];
@@ -251,7 +253,7 @@ impl KeyValueReader {
         Some((key, value))
     }
 
-    fn read_size(&mut self) -> Option<u32> {
+    fn read_size(&mut self) -> Option<u64> {
         let mut result = 0;
         let mut buf = [0u8; 1];
 
@@ -266,22 +268,23 @@ impl KeyValueReader {
 
             let byte = buf[0];
             if (byte & 0x80) == 0 {
-                result |= (byte as u32) << shift;
+                result |= (byte as u64) << shift;
                 return Some(result);
             } else {
-                result |= ((byte & 0x7F) as u32) << shift;
+                result |= ((byte & 0x7F) as u64) << shift;
             }
         }
 
         failed("Invalid leb128 sequence")
     }
 
-    fn expect_sized_bytes(&mut self) -> Vec<u8> {
-        let len = self.read_size().failed("Missing leb128 value sequence") as usize;
-        let mut bytes = vec![0; len];
-        self.file
-            .read_exact(&mut bytes)
-            .failed("Failed to read bytes");
+    fn expect_sized_bytes(&mut self) -> JumboBytesMutSync {
+        let len = self.read_size().failed("Missing leb128 value sequence");
+        let mut file_segment = (&mut self.file).take(len);
+        let mut bytes = JumboBytesMutSync::new(u64::MAX);
+
+        std::io::copy(&mut file_segment, &mut bytes).failed("Failed to read bytes");
+
         bytes
     }
 }

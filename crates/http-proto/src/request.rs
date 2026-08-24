@@ -8,6 +8,8 @@ use std::borrow::Cow;
 
 use compact_str::ToCompactString;
 use http_body_util::BodyExt;
+use tokio::io::AsyncWriteExt as _;
+use utils::jumbo_bytes::JumboBytesMut;
 
 use crate::HttpRequest;
 
@@ -20,15 +22,16 @@ pub fn decode_path_element(item: &str) -> Cow<'_, str> {
 
 pub async fn fetch_body(
     req: &mut HttpRequest,
-    max_size: usize,
+    max_size: u64,
     session_id: u64,
-) -> Option<Vec<u8>> {
-    let mut bytes = Vec::with_capacity(1024);
+) -> Option<JumboBytesMut> {
+    let mut body = JumboBytesMut::new(if max_size == 0 { u64::MAX } else { max_size });
     while let Some(Ok(frame)) = req.frame().await {
         if let Some(data) = frame.data_ref() {
-            if bytes.len() + data.len() <= max_size || max_size == 0 {
-                bytes.extend_from_slice(data);
-            } else {
+            if let Err(_err) = body.write_all(&data).await {
+                // ideally we'd log the real error somewhere, sometimes the write may fail due to disk issues, but
+                // it will most likely fail due to the body exceeding max_size, and that's what users of this function
+                // assume is the case when this returns None
                 trc::event!(
                     Http(trc::HttpEvent::RequestBody),
                     SpanId = session_id,
@@ -40,13 +43,15 @@ pub async fn fetch_body(
                             v.to_str().unwrap_or_default().to_compact_string().into()
                         ]))
                         .collect::<Vec<_>>(),
-                    Contents = std::str::from_utf8(&bytes)
-                        .unwrap_or("[binary data]")
-                        .to_string(),
-                    Size = bytes.len(),
-                    Limit = max_size,
+                    Contents = if let Some(bytes) = body.as_slice() {
+                        std::str::from_utf8(bytes)
+                            .unwrap_or("[binary data]")
+                            .to_string()
+                    } else {
+                        "[large data]".to_string()
+                    },
+                    Size = body.len(),
                 );
-
                 return None;
             }
         }
@@ -63,11 +68,15 @@ pub async fn fetch_body(
                 v.to_str().unwrap_or_default().to_compact_string().into()
             ]))
             .collect::<Vec<_>>(),
-        Contents = std::str::from_utf8(&bytes)
-            .unwrap_or("[binary data]")
-            .to_string(),
-        Size = bytes.len(),
+        Contents = if let Some(bytes) = body.as_slice() {
+            std::str::from_utf8(bytes)
+                .unwrap_or("[binary data]")
+                .to_string()
+        } else {
+            "[large data]".to_string()
+        },
+        Size = body.len(),
     );
 
-    bytes.into()
+    Some(body)
 }

@@ -8,9 +8,10 @@
  *
  */
 
-use crate::{BlobStore, Store, backend::fs::FsStore};
+use crate::{BlobStore, Store, backend::fs::FsStore, stream::BlobReadStream};
 use registry::schema::structs::{BlobStoreBase, ShardedBlobStore};
 use std::{ops::Range, sync::Arc};
+use utils::jumbo_bytes::JumboBytesMut;
 
 pub struct ShardedBlob {
     pub stores: Vec<BlobStore>,
@@ -74,8 +75,8 @@ impl ShardedBlob {
     pub async fn get_blob(
         &self,
         key: &[u8],
-        read_range: Range<usize>,
-    ) -> trc::Result<Option<Vec<u8>>> {
+        read_range: Range<u64>,
+    ) -> trc::Result<Option<BlobReadStream>> {
         async move {
             match self.get_store(key) {
                 BlobStore::Store(store) => match store {
@@ -112,21 +113,21 @@ impl ShardedBlob {
         .await
     }
 
-    pub async fn put_blob(&self, key: &[u8], data: &[u8]) -> trc::Result<()> {
+    pub async fn get_blob_length(&self, key: &[u8]) -> trc::Result<Option<u64>> {
         async move {
             match self.get_store(key) {
                 BlobStore::Store(store) => match store {
                     #[cfg(feature = "sqlite")]
-                    Store::SQLite(store) => store.put_blob(key, data).await,
+                    Store::SQLite(store) => store.get_blob_length(key).await,
                     #[cfg(feature = "foundation")]
-                    Store::FoundationDb(store) => store.put_blob(key, data).await,
+                    Store::FoundationDb(store) => store.get_blob_length(key).await,
                     #[cfg(feature = "postgres")]
-                    Store::PostgreSQL(store) => store.put_blob(key, data).await,
+                    Store::PostgreSQL(store) => store.get_blob_length(key).await,
                     #[cfg(feature = "mysql")]
-                    Store::MySQL(store) => store.put_blob(key, data).await,
+                    Store::MySQL(store) => store.get_blob_length(key).await,
                     #[cfg(feature = "rocks")]
-                    Store::RocksDb(store) => store.put_blob(key, data).await,
-                    Store::Ephemeral(store) => store.put_blob(key, data).await,
+                    Store::RocksDb(store) => store.get_blob_length(key).await,
+                    Store::Ephemeral(store) => store.get_blob_length(key).await,
                     // SPDX-SnippetBegin
                     // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
                     // SPDX-License-Identifier: LicenseRef-SEL
@@ -134,10 +135,54 @@ impl ShardedBlob {
                         feature = "enterprise",
                         any(feature = "postgres", feature = "mysql")
                     ))]
+                    Store::SQLReadReplica(store) => store.get_blob_length(key).await,
                     // SPDX-SnippetEnd
-                    Store::SQLReadReplica(store) => store.put_blob(key, data).await,
                     Store::None => Err(trc::StoreEvent::NotConfigured.into()),
                 },
+                BlobStore::Fs(store) => store.get_blob_length(key).await,
+                #[cfg(feature = "s3")]
+                BlobStore::S3(store) => store.get_blob_length(key).await,
+                #[cfg(feature = "azure")]
+                BlobStore::Azure(store) => store.get_blob_length(key).await,
+                BlobStore::Sharded(_) => unimplemented!(),
+            }
+        }
+        .await
+    }
+
+    pub async fn put_blob(&self, key: &[u8], data: JumboBytesMut) -> trc::Result<()> {
+        async move {
+            match self.get_store(key) {
+                BlobStore::Store(store) => {
+                    let data = data
+                        .into_vec(u64::MAX)
+                        .await
+                        .map_err(jumbo_bytes_into_error)?;
+
+                    match store {
+                        #[cfg(feature = "sqlite")]
+                        Store::SQLite(store) => store.put_blob(key, &data).await,
+                        #[cfg(feature = "foundation")]
+                        Store::FoundationDb(store) => store.put_blob(key, &data).await,
+                        #[cfg(feature = "postgres")]
+                        Store::PostgreSQL(store) => store.put_blob(key, &data).await,
+                        #[cfg(feature = "mysql")]
+                        Store::MySQL(store) => store.put_blob(key, &data).await,
+                        #[cfg(feature = "rocks")]
+                        Store::RocksDb(store) => store.put_blob(key, &data).await,
+                        Store::Ephemeral(store) => store.put_blob(key, &data).await,
+                        // SPDX-SnippetBegin
+                        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+                        // SPDX-License-Identifier: LicenseRef-SEL
+                        #[cfg(all(
+                            feature = "enterprise",
+                            any(feature = "postgres", feature = "mysql")
+                        ))]
+                        // SPDX-SnippetEnd
+                        Store::SQLReadReplica(store) => store.put_blob(key, &data).await,
+                        Store::None => Err(trc::StoreEvent::NotConfigured.into()),
+                    }
+                }
                 BlobStore::Fs(store) => store.put_blob(key, data).await,
                 #[cfg(feature = "s3")]
                 BlobStore::S3(store) => store.put_blob(key, data).await,
@@ -189,4 +234,8 @@ impl ShardedBlob {
     pub fn into_single(self) -> BlobStore {
         self.stores.into_iter().next().unwrap()
     }
+}
+
+fn jumbo_bytes_into_error(err: std::io::Error) -> trc::Error {
+    trc::StoreEvent::BlobWrite.reason(err)
 }

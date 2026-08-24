@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt};
+
 pub const BLOB_HASH_LEN: usize = 32;
 
 #[derive(
@@ -32,6 +34,29 @@ impl BlobHash {
 
     pub fn generate(value: impl AsRef<[u8]>) -> Self {
         BlobHash(blake3::hash(value.as_ref()).into())
+    }
+    async fn generate_from_stream_inner<R: AsyncRead + AsyncSeek + Unpin>(
+        readable: &mut R,
+    ) -> std::io::Result<Self> {
+        readable.rewind().await?;
+        let mut hasher = blake3::Hasher::new();
+        let mut read_buffer = [0u8; 8192];
+        loop {
+            let bytes_read = readable.read(&mut read_buffer).await?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&read_buffer[0..bytes_read]);
+        }
+        readable.rewind().await?;
+        Ok(BlobHash(hasher.finalize().into()))
+    }
+    pub async fn generate_from_stream<R: AsyncRead + AsyncSeek + Unpin>(
+        readable: &mut R,
+    ) -> trc::Result<Self> {
+        Self::generate_from_stream_inner(readable)
+            .await
+            .map_err(|err| trc::StoreEvent::BlobWrite.reason(err))
     }
 
     pub fn try_from_hash_slice(value: &[u8]) -> Result<BlobHash, std::array::TryFromSliceError> {

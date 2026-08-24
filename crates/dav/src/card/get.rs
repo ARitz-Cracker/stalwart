@@ -128,7 +128,7 @@ impl CardGetRequestHandler for Server {
         if !is_head {
             Ok(response.with_binary_body(vcard))
         } else {
-            Ok(response.with_content_length(vcard.len()))
+            Ok(response.with_content_length(vcard.len() as u64))
         }
     }
 }

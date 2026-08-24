@@ -209,10 +209,11 @@ impl WebApplicationManager {
         // Obtain application bundle
         let bundle = if let Some(bundle) = server
             .blob_store()
-            .get_blob(self.blob_key.as_slice(), 0..usize::MAX)
+            .get_blob(self.blob_key.as_slice(), 0..u64::MAX)
             .await?
         {
-            bundle
+            // zip::ZipArchive doesn't seem to work with an async stream, so we can't stream it in for now.
+            bundle.0.into_vec().await?
         } else {
             // Fetch app bundle
             let resource = fetch_resource(&self.url, None, Duration::from_secs(60), MAX_APP_SIZE)
@@ -228,7 +229,11 @@ impl WebApplicationManager {
             // Store in blob store for future use
             server
                 .blob_store()
-                .put_blob(self.blob_key.as_slice(), &resource, CompressionAlgo::None)
+                .put_blob(
+                    self.blob_key.as_slice(),
+                    resource.clone().into(),
+                    CompressionAlgo::None,
+                )
                 .await
                 .caused_by(trc::location!())?;
 

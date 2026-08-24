@@ -38,7 +38,9 @@ impl IndexableObject for MessageData {
                     IndexItem::None
                 },
             },
-            IndexValue::Quota { used: self.size },
+            IndexValue::Quota {
+                used: self.size as u64,
+            },
             IndexValue::LogItem {
                 sync_collection: SyncCollection::Email,
                 prefix: self.thread_id.into(),
@@ -77,7 +79,7 @@ impl IndexableObject for &ArchivedMessageData {
                 },
             },
             IndexValue::Quota {
-                used: self.size.to_native(),
+                used: self.size.to_native() as u64,
             },
             IndexValue::LogItem {
                 sync_collection: SyncCollection::Email,

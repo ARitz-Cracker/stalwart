@@ -25,8 +25,9 @@ use common::{
 use dav::{DavMethod, request::DavRequestHandler};
 use groupware::DavResourceName;
 use http_proto::{
-    DownloadResponse, HttpContext, HttpRequest, HttpResponse, HttpResponseBody, HttpSessionData,
-    JsonProblemResponse, ToHttpResponse, form_urlencoded, request::fetch_body,
+    DownloadResponse, HttpContext, HttpRequest, HttpResponse, HttpResponseBody,
+    HttpResponseBodyError, HttpSessionData, JsonProblemResponse, ToHttpResponse, form_urlencoded,
+    request::fetch_body,
 };
 use hyper::{
     Method, StatusCode, body,
@@ -122,10 +123,10 @@ impl ParseHttp for Server {
                             }
                         }
 
-                        let bytes = fetch_body(
+                        let body = fetch_body(
                             &mut req,
                             if !access_token.has_permission(Permission::UnlimitedUploads) {
-                                self.core.jmap.upload_max_size
+                                self.core.jmap.upload_max_size as u64
                             } else {
                                 0
                             },
@@ -136,8 +137,15 @@ impl ParseHttp for Server {
 
                         return Ok(self
                             .handle_jmap_request(
+                                // FIXME: JumboBytesMut must be converted to a vec here since we don't have a streaming
+                                // json parser at the time of writing.
                                 Request::parse(
-                                    &bytes,
+                                    &body
+                                        .into_vec(self.core.jmap.request_max_size as u64)
+                                        .await
+                                        .map_err(|err| {
+                                            trc::JmapEvent::RequestTooLarge.into_err().reason(err)
+                                        })?,
                                     self.core.jmap.request_max_calls,
                                     self.core.jmap.request_max_size,
                                 )?,
@@ -158,7 +166,7 @@ impl ParseHttp for Server {
                             path.next(),
                         ) {
                             return match self.blob_download(&blob_id, &access_token).await? {
-                                Some(blob) => Ok(DownloadResponse {
+                                Some((blob_stream, blob_length)) => Ok(DownloadResponse {
                                     filename: name.to_string(),
                                     content_type: req
                                         .uri()
@@ -169,7 +177,8 @@ impl ParseHttp for Server {
                                                 .map(|(_, v)| v.into_owned())
                                         })
                                         .unwrap_or("application/octet-stream".to_string()),
-                                    blob,
+                                    content_length: blob_length,
+                                    blob: Box::new(blob_stream),
                                 }
                                 .into_http_response()),
                                 None => Err(trc::ResourceEvent::NotFound.into_err()),
@@ -193,14 +202,14 @@ impl ParseHttp for Server {
                             )
                             .await
                             {
-                                Some(bytes) => Ok(self
+                                Some(body) => Ok(self
                                     .blob_upload(
                                         account_id,
                                         req.headers()
                                             .get(CONTENT_TYPE)
                                             .and_then(|h| h.to_str().ok())
                                             .unwrap_or("application/octet-stream"),
-                                        &bytes,
+                                        body,
                                         &access_token,
                                     )
                                     .await?
@@ -541,7 +550,9 @@ impl ParseHttp for Server {
 
                     return self
                         .handle_autodiscover_request(
-                            fetch_body(&mut req, 8192, session.session_id).await,
+                            fetch_body(&mut req, 8192, session.session_id)
+                                .await
+                                .and_then(|mut jb| jb.take_vec()),
                         )
                         .await
                         .map(|resource| resource.into_http_response());
@@ -816,7 +827,7 @@ async fn handle_session<T: SessionStream>(inner: Arc<Inner>, session: SessionDat
                             SpanId = session.session_id,
                         );
 
-                        return Ok::<_, hyper::Error>(
+                        return Ok::<_, HttpResponseBodyError>(
                             JsonProblemResponse(StatusCode::FORBIDDEN)
                                 .into_http_response()
                                 .build(),
@@ -873,7 +884,7 @@ async fn handle_session<T: SessionStream>(inner: Arc<Inner>, session: SessionDat
                         }
                     }
 
-                    Ok::<_, hyper::Error>(response)
+                    Ok::<_, HttpResponseBodyError>(response)
                 }
             }),
         )

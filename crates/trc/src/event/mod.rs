@@ -576,6 +576,28 @@ impl NetworkEvent {
     }
 }
 
+impl WebDavEvent {
+    #[inline(always)]
+    pub fn ctx(self, key: Key, value: impl Into<Value>) -> Error {
+        self.into_err().ctx(key, value)
+    }
+
+    #[inline(always)]
+    pub fn caused_by(self, error: impl Into<Value>) -> Error {
+        self.into_err().caused_by(error)
+    }
+
+    #[inline(always)]
+    pub fn reason(self, error: impl Display) -> Error {
+        self.into_err().reason(error)
+    }
+
+    #[inline(always)]
+    pub fn into_err(self) -> Error {
+        Error::new(EventType::WebDav(self))
+    }
+}
+
 impl Value {
     pub fn from_maybe_string(value: &[u8]) -> Self {
         if let Ok(value) = std::str::from_utf8(value) {

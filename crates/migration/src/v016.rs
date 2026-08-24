@@ -91,7 +91,7 @@ pub async fn migrate_v0_16(server: &Server) -> trc::Result<()> {
 async fn migrate_spam_model(server: &Server) -> trc::Result<()> {
     let Some(mut trainer) = server
         .blob_store()
-        .get_blob(SPAM_TRAINER_KEY, 0..usize::MAX)
+        .get_blob_vec(SPAM_TRAINER_KEY, 0..u64::MAX)
         .await
         .and_then(|archive| match archive {
             Some(archive) => <Archive<AlignedBytes> as Deserialize>::deserialize(&archive)
@@ -136,9 +136,10 @@ async fn migrate_spam_model(server: &Server) -> trc::Result<()> {
         .blob_store()
         .put_blob(
             SPAM_TRAINER_KEY,
-            &Archiver::new(trainer)
+            Archiver::new(trainer)
                 .serialize()
-                .caused_by(trc::location!())?,
+                .caused_by(trc::location!())?
+                .into(),
             server.core.email.compression,
         )
         .await

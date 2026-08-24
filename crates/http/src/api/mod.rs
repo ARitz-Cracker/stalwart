@@ -24,7 +24,7 @@ use common::{
     manager::application::Resource,
 };
 use groupware::calendar::itip::{ItipIngest, RsvpRequest};
-use http_body_util::{StreamBody, combinators::BoxBody};
+use http_body_util::{StreamBody, combinators::UnsyncBoxBody};
 use http_proto::{
     HttpRequest, HttpResponse, HttpSessionData, JsonResponse, ToHttpResponse,
     request::{decode_path_element, fetch_body},
@@ -62,7 +62,9 @@ impl ManagementApi for Server {
     ) -> trc::Result<HttpResponse> {
         let is_post = req.method() == Method::POST;
         let body = if is_post {
-            fetch_body(req, 1024 * 1024, session.session_id).await
+            fetch_body(req, 1024 * 1024, session.session_id)
+                .await
+                .and_then(|mut jb| jb.take_vec())
         } else {
             None
         };
@@ -233,7 +235,7 @@ impl ManagementApi for Server {
                         Ok(HttpResponse::new(StatusCode::OK)
                             .with_content_type("text/event-stream")
                             .with_cache_control("no-store")
-                            .with_stream_body(BoxBody::new(StreamBody::new(
+                            .with_stream_body(UnsyncBoxBody::new(StreamBody::new(
                                 async_stream::stream! {
                                     while let Some(stage) = rx.recv().await {
                                         yield Ok(stage.to_frame());

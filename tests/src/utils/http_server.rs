@@ -116,7 +116,9 @@ impl common::network::SessionManager for HttpSessionManager {
                                         (k.as_str().to_lowercase(), v.to_str().unwrap().to_string())
                                     })
                                     .collect(),
-                                body: fetch_body(&mut req, 1024 * 1024, 0).await,
+                                body: fetch_body(&mut req, 1024 * 1024, 0)
+                                    .await
+                                    .and_then(|mut jb| jb.take_vec()),
                             });
 
                             Ok::<_, hyper::Error>(response.build())

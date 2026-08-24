@@ -392,7 +392,7 @@ impl TestMessage for MessageWrapper {
         String::from_utf8(
             core.server
                 .blob_store()
-                .get_blob(self.message.blob_hash.as_slice(), 0..usize::MAX)
+                .get_blob_vec(self.message.blob_hash.as_slice(), 0..u64::MAX)
                 .await
                 .unwrap()
                 .expect("Message blob not found"),

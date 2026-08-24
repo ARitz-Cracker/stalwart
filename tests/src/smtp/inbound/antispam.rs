@@ -314,7 +314,7 @@ async fn antispam() {
 
                         let blob_id = test
                             .server
-                            .put_jmap_blob(u32::MAX, sample.as_bytes())
+                            .put_jmap_blob(u32::MAX, Vec::from(sample.as_bytes()).into())
                             .await
                             .unwrap();
                         admin

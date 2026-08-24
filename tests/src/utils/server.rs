@@ -551,14 +551,14 @@ impl TestServer {
             .unwrap();
         self.server
             .blob_store()
-            .get_blob(
+            .get_blob_vec(
                 metadata_
                     .unarchive::<MessageMetadata>()
                     .unwrap()
                     .blob_hash
                     .0
                     .as_slice(),
-                0..usize::MAX,
+                0..u64::MAX,
             )
             .await
             .unwrap()

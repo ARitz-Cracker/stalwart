@@ -401,16 +401,14 @@ impl<'x> ArchivedResource<'x> {
         }
     }
 
-    pub fn content_length(&self) -> Option<u32> {
+    pub fn content_length(&self) -> Option<u64> {
         match self {
-            ArchivedResource::FileNode(archive) => {
-                archive.inner.file.as_ref().map(|f| f.size.to_native())
-            }
-            ArchivedResource::CalendarEvent(archive) => archive.inner.size.to_native().into(),
+            ArchivedResource::FileNode(archive) => archive.inner.file.size(),
+            ArchivedResource::CalendarEvent(archive) => Some(archive.inner.size.to_native().into()),
             ArchivedResource::CalendarEventNotification(archive) => {
-                archive.inner.size.to_native().into()
+                Some(archive.inner.size.to_native().into())
             }
-            ArchivedResource::ContactCard(archive) => archive.inner.size.to_native().into(),
+            ArchivedResource::ContactCard(archive) => Some(archive.inner.size.to_native().into()),
             ArchivedResource::AddressBook(_)
             | ArchivedResource::Calendar(_)
             | ArchivedResource::CalendarEventNotificationCollection(_) => None,
@@ -419,11 +417,7 @@ impl<'x> ArchivedResource<'x> {
 
     pub fn content_type(&self) -> Option<&str> {
         match self {
-            ArchivedResource::FileNode(archive) => archive
-                .inner
-                .file
-                .as_ref()
-                .and_then(|f| f.media_type.as_deref()),
+            ArchivedResource::FileNode(archive) => archive.inner.file.media_type(),
             ArchivedResource::CalendarEvent(_) | ArchivedResource::CalendarEventNotification(_) => {
                 "text/calendar".into()
             }

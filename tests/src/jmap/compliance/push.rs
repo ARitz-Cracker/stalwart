@@ -144,7 +144,11 @@ impl common::network::SessionManager for SessionManager {
                     service_fn(|mut req: hyper::Request<body::Incoming>| {
                         let tx = tx.clone();
                         async move {
-                            let body = fetch_body(&mut req, 1024 * 1024, 0).await.unwrap();
+                            let body = fetch_body(&mut req, 1024 * 1024, 0)
+                                .await
+                                .unwrap()
+                                .take_vec()
+                                .unwrap();
                             if let Ok(message) = serde_json::from_slice::<Value>(&body) {
                                 let _ = tx.send(message).await;
                             }

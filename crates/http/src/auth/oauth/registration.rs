@@ -64,7 +64,9 @@ impl ClientRegistrationHandler for Server {
         session: HttpSessionData,
     ) -> trc::Result<HttpResponse> {
         // Parse request
-        let body = fetch_body(req, 20 * 1024, session.session_id).await;
+        let body = fetch_body(req, 20 * 1024, session.session_id)
+            .await
+            .and_then(|mut jb| jb.take_vec());
         let request = serde_json::from_slice::<ClientRegistrationRequest>(
             body.as_deref().unwrap_or_default(),
         )

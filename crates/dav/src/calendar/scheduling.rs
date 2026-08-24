@@ -145,7 +145,7 @@ impl CalendarEventNotificationHandler for Server {
         if !is_head {
             Ok(response.with_binary_body(ical))
         } else {
-            Ok(response.with_content_length(ical.len()))
+            Ok(response.with_content_length(ical.len() as u64))
         }
     }
 

@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use crate::backend::postgres::into_pool_error;
+use crate::{backend::postgres::into_pool_error, stream::BlobReadStream};
 
 use super::{PostgresStore, into_error};
 
@@ -14,14 +14,18 @@ impl PostgresStore {
     pub(crate) async fn get_blob(
         &self,
         key: &[u8],
-        range: Range<usize>,
-    ) -> trc::Result<Option<Vec<u8>>> {
+        mut range: Range<u64>,
+    ) -> trc::Result<Option<BlobReadStream>> {
+        range.start = range.start.min(usize::MAX as u64);
+        range.end = range.end.min(usize::MAX as u64);
+        let range = (range.start as usize)..(range.end as usize);
         let conn = self.conn_pool.get().await.map_err(into_pool_error)?;
         let s = conn
             .prepare_cached("SELECT v FROM t WHERE k = $1")
             .await
             .map_err(into_error)?;
-        conn.query_opt(&s, &[&key])
+        let maybe_bytes = conn
+            .query_opt(&s, &[&key])
             .await
             .and_then(|row| {
                 if let Some(row) = row {
@@ -34,6 +38,25 @@ impl PostgresStore {
                             .unwrap_or_default()
                             .to_vec()
                     }))
+                } else {
+                    Ok(None)
+                }
+            })
+            .map_err(into_error)?;
+        Ok(maybe_bytes.map(|bytes| BlobReadStream::Bytes(bytes.into())))
+    }
+
+    pub(crate) async fn get_blob_length(&self, key: &[u8]) -> trc::Result<Option<u64>> {
+        let conn = self.conn_pool.get().await.map_err(into_pool_error)?;
+        let s = conn
+            .prepare_cached("SELECT OCTET_LENGTH(v) FROM t WHERE k = $1")
+            .await
+            .map_err(into_error)?;
+        conn.query_opt(&s, &[&key])
+            .await
+            .and_then(|row| {
+                if let Some(row) = row {
+                    Ok(Some(row.try_get::<_, i64>(0)? as u64))
                 } else {
                     Ok(None)
                 }

@@ -1132,6 +1132,9 @@ impl PropFindRequestHandler for Server {
     }
 
     async fn dav_quota(&self, account_id: u32) -> trc::Result<PropFindAccountQuota> {
+        // Some WebDAV clients refuse to upload if there's apparently insufficient space.
+        // 1 PiB should be large enough.
+        const FALLBACK_SIZE_LIMIT: u64 = 1024 * 1024 * 1024 * 1024 * 1024;
         let account = self.account(account_id).await.caused_by(trc::location!())?;
         let quota = if account.quota_disk > 0 {
             account.quota_disk
@@ -1140,10 +1143,10 @@ impl PropFindRequestHandler for Server {
             if tenant.quota_disk > 0 {
                 tenant.quota_disk
             } else {
-                u32::MAX as u64
+                FALLBACK_SIZE_LIMIT
             }
         } else {
-            u32::MAX as u64
+            FALLBACK_SIZE_LIMIT
         };
         let used = self
             .get_used_quota_account(account_id)

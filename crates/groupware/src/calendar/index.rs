@@ -44,7 +44,7 @@ impl IndexableObject for Calendar {
                 value: (&self.acls).into(),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogContainer {
                 sync_collection: SyncCollection::Calendar,
@@ -66,7 +66,7 @@ impl IndexableObject for &ArchivedCalendar {
                     .into(),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogContainer {
                 sync_collection: SyncCollection::Calendar,
@@ -97,7 +97,7 @@ impl IndexableObject for CalendarEvent {
                 value: self.data.event.uids().next().into(),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogItem {
                 sync_collection: SyncCollection::Calendar,
@@ -123,7 +123,7 @@ impl IndexableObject for &ArchivedCalendarEvent {
                 value: self.data.event.uids().next().into(),
             },
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::LogItem {
                 sync_collection: SyncCollection::Calendar,
@@ -144,7 +144,7 @@ impl IndexableObject for CalendarEventNotification {
     fn index_values(&self) -> impl Iterator<Item = IndexValue<'_>> {
         [
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::Property {
                 field: ValueClass::IndexProperty(IndexPropertyClass::Integer {
@@ -166,7 +166,7 @@ impl IndexableObject for &ArchivedCalendarEventNotification {
     fn index_values(&self) -> impl Iterator<Item = IndexValue<'_>> {
         [
             IndexValue::Quota {
-                used: self.size() as u32,
+                used: self.size() as u64,
             },
             IndexValue::Property {
                 field: ValueClass::IndexProperty(IndexPropertyClass::Integer {
