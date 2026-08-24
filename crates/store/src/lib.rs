@@ -6,12 +6,14 @@
 
 #![warn(clippy::large_futures)]
 
+pub(crate) mod async_lz4;
 pub mod backend;
 pub mod build;
 pub mod dispatch;
 pub mod query;
 pub mod registry;
 pub mod search;
+pub mod stream;
 pub mod write;
 
 use ::registry::schema::enums::CompressionAlgo;

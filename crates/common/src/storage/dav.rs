@@ -41,7 +41,7 @@ impl DavResourcePath<'_> {
     }
 
     #[inline(always)]
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> u64 {
         self.resource.size().unwrap_or_default()
     }
 }
@@ -328,7 +328,7 @@ impl DavResource {
         }
     }
 
-    pub fn size(&self) -> Option<u32> {
+    pub fn size(&self) -> Option<u64> {
         match &self.data {
             DavResourceMetadata::File { size, .. } => *size,
             _ => None,

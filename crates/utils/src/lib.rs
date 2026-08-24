@@ -14,6 +14,7 @@ pub mod codec;
 pub mod cron;
 pub mod glob;
 pub mod http;
+pub mod jumbo_bytes;
 pub mod map;
 pub mod snowflake;
 pub mod template;

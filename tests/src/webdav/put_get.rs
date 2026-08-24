@@ -252,18 +252,18 @@ pub async fn test(test: &TestServer) {
         (
             "/dav/card/john%40example.com/chunky-card1.vcf",
             TEST_VCARD_1,
-            conf.max_vcard_size,
+            conf.max_vcard_size as u64,
             Some("B:max-resource-size"),
         ),
         (
             "/dav/cal/john%40example.com/chunky-event1.ics",
             TEST_ICAL_1,
-            conf.max_ical_size,
+            conf.max_ical_size as u64,
             Some("A:max-resource-size"),
         ),
     ] {
-        let mut chunky_contents = String::with_capacity(max_size + contents.len());
-        while chunky_contents.len() < max_size {
+        let mut chunky_contents = String::with_capacity((max_size as usize) + contents.len());
+        while chunky_contents.len() < (max_size as usize) {
             chunky_contents.push_str(contents);
         }
         let response = client
@@ -626,6 +626,64 @@ END:VCALENDAR
             .request("DELETE", path, "")
             .await
             .with_status(StatusCode::NOT_FOUND);
+    }
+
+    // A body large enough to cross the spillover threshold, so the upload is buffered in a
+    // temporary file rather than in memory and is read back out of one on the way down. Below that
+    // threshold this whole path is dormant, and every other test here sits well below it.
+    {
+        let path = "/dav/file/john%40example.com/large.bin";
+
+        // Position-dependent content: filler alone would still match if a chunk were dropped,
+        // duplicated, or written at the wrong offset.
+        let mut large = String::with_capacity(4 * 1024 * 1024);
+        let mut marker = 0usize;
+        while large.len() < 4 * 1024 * 1024 {
+            large.push_str(&format!("[{marker:08}]"));
+            large.push_str("abcdefghijklmnopqrstuvwxyz0123456789");
+            marker += 1;
+        }
+        let size = large.len();
+
+        let etag = client
+            .request("PUT", path, large.as_str())
+            .await
+            .with_status(StatusCode::CREATED)
+            .etag()
+            .to_string();
+
+        client
+            .request("GET", path, "")
+            .await
+            .with_status(StatusCode::OK)
+            .with_header("etag", &etag)
+            .with_header("content-length", &size.to_string())
+            .with_body(&large);
+
+        // Ranges are served by seeking within the spilled file, so check both a slice from the
+        // middle and one that runs to the end.
+        let mid = size / 2;
+        client
+            .request_with_headers(
+                "GET",
+                path,
+                [("range", format!("bytes={mid}-{}", mid + 99).as_str())],
+                "",
+            )
+            .await
+            .with_status(StatusCode::PARTIAL_CONTENT)
+            .with_body(&large[mid..mid + 100]);
+
+        client
+            .request_with_headers("GET", path, [("range", "bytes=-64")], "")
+            .await
+            .with_status(StatusCode::PARTIAL_CONTENT)
+            .with_body(&large[size - 64..]);
+
+        client
+            .request("DELETE", path, "")
+            .await
+            .with_status(StatusCode::NO_CONTENT);
     }
 
     client.delete_default_containers().await;

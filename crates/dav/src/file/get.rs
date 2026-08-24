@@ -80,13 +80,11 @@ impl FileGetRequestHandler for Server {
             return Err(DavError::Code(StatusCode::FORBIDDEN));
         }
 
-        let (hash, size, content_type) = if let Some(file) = node.file.as_ref() {
-            (
-                file.blob_hash.0.as_ref(),
-                u32::from(file.size) as usize,
-                file.media_type.as_ref().map(|s| s.as_str()),
-            )
-        } else {
+        let (Some(hash), Some(size), Some(content_type)) = (
+            node.file.blob_hash(),
+            node.file.size(),
+            node.file.media_type(),
+        ) else {
             return Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED));
         };
 
@@ -124,7 +122,7 @@ impl FileGetRequestHandler for Server {
             None
         };
         let byte_range = match byte_range {
-            Some(Some(range)) => Some(range.start as usize..range.end as usize),
+            Some(Some(range)) => Some(range),
             Some(None) => {
                 return Ok(HttpResponse::new(StatusCode::RANGE_NOT_SATISFIABLE)
                     .with_accept_ranges()
@@ -135,7 +133,7 @@ impl FileGetRequestHandler for Server {
         };
 
         let response = HttpResponse::new(StatusCode::OK)
-            .with_content_type(content_type.unwrap_or("application/octet-stream"))
+            .with_content_type(content_type)
             .with_etag(etag)
             .with_last_modified(last_modified)
             .with_accept_ranges();
@@ -144,25 +142,25 @@ impl FileGetRequestHandler for Server {
             return Ok(response.with_content_length(size));
         }
 
-        let contents = self
+        let (contents, contents_size) = self
             .blob_store()
-            .get_blob(hash, byte_range.clone().unwrap_or(0..usize::MAX))
+            .get_blob(hash.as_slice(), byte_range.clone().unwrap_or(0..u64::MAX))
             .await
             .caused_by(trc::location!())?
             .ok_or(DavError::Code(StatusCode::NOT_FOUND))?;
 
         Ok(match byte_range {
-            Some(byte_range) if !contents.is_empty() => response
+            Some(byte_range) if contents_size > 0 => response
                 .with_status_code(StatusCode::PARTIAL_CONTENT)
                 .with_content_range(format!(
                     "bytes {}-{}/{}",
                     byte_range.start,
-                    byte_range.start + contents.len() - 1,
+                    byte_range.start + contents_size - 1,
                     size
                 )),
             Some(_) => return Err(DavError::Code(StatusCode::NOT_FOUND)),
             None => response,
         }
-        .with_binary_body(contents))
+        .with_io_read_body(Box::new(contents), Some(contents_size)))
     }
 }

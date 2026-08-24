@@ -115,11 +115,7 @@ impl SieveScriptSet for Server {
                         // Store blob
                         let sieve = &mut result.builder.changes_mut().unwrap();
                         let (blob_hash, blob_hold) = self
-                            .put_temporary_blob(
-                                account_id,
-                                result.blob_update.as_ref().unwrap(),
-                                60,
-                            )
+                            .put_temporary_blob(account_id, result.blob_update.unwrap().into(), 60)
                             .await?;
                         sieve.blob_hash = blob_hash;
                         let blob_size = sieve.size as usize;
@@ -250,7 +246,7 @@ impl SieveScriptSet for Server {
                             // Store blob
                             let sieve = &mut result.builder.changes_mut().unwrap();
                             let (blob_hash, blob_hold) =
-                                self.put_temporary_blob(account_id, &blob, 60).await?;
+                                self.put_temporary_blob(account_id, blob.into(), 60).await?;
                             sieve.blob_hash = blob_hash;
                             batch.clear(blob_hold);
 
@@ -518,10 +514,10 @@ impl SieveScriptSet for Server {
                 !matches!(blob_id.class, BlobClass::Linked { account_id, collection, document_id: d } if account_id == ctx.account_id && collection == u8::from(Collection::SieveScript) && *document_id == d)
             }) {
                 // Check access
-                if let Some(mut bytes) = self.blob_download(&blob_id, ctx.access_token).await? {
+                if let Some((bytes_stream, bytes_len)) = self.blob_download(&blob_id, ctx.access_token).await? {
                     // Check quota
                     match self
-                        .has_available_quota(ctx.account_cache, bytes.len() as u64)
+                        .has_available_quota(ctx.account_cache, bytes_len)
                         .await
                     {
                         Ok(_) => (),
@@ -536,6 +532,7 @@ impl SieveScriptSet for Server {
                             }
                         }
                     }
+                    let mut bytes = bytes_stream.into_vec().await.caused_by(trc::location!())?;
 
                     // Compile script
                     match self.core.sieve.untrusted_compiler.compile(&bytes) {

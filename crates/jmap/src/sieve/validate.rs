@@ -32,7 +32,7 @@ impl SieveScriptValidate for Server {
             error: match request.blob_id {
                 MaybeInvalid::Value(blob_id) => {
                     match self
-                        .blob_download(&blob_id, access_token)
+                        .blob_download_vec(&blob_id, access_token)
                         .await?
                         .map(|bytes| self.core.sieve.untrusted_compiler.compile(&bytes))
                     {

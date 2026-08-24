@@ -4,14 +4,11 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use crate::BlobStore;
+use crate::{BlobStore, stream::BlobReadStream};
 use registry::schema::structs;
-use std::{io::SeekFrom, ops::Range, path::PathBuf, sync::Arc};
-use tokio::{
-    fs::{self, File},
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-};
-use utils::codec::base32_custom::Base32Writer;
+use std::{ops::Range, path::PathBuf, sync::Arc};
+use tokio::fs::{self, File};
+use utils::{codec::base32_custom::Base32Writer, jumbo_bytes::JumboBytesMut};
 
 pub struct FsStore {
     path: PathBuf,
@@ -36,50 +33,36 @@ impl FsStore {
     pub(crate) async fn get_blob(
         &self,
         key: &[u8],
-        range: Range<usize>,
-    ) -> trc::Result<Option<Vec<u8>>> {
+        range: Range<u64>,
+    ) -> trc::Result<Option<BlobReadStream>> {
         let blob_path = self.build_path(key);
-        let blob_size = match fs::metadata(&blob_path).await {
-            Ok(m) => m.len() as usize,
-            Err(_) => return Ok(None),
-        };
-        let mut blob = File::open(&blob_path).await.map_err(into_error)?;
-
-        Ok(Some(if range.start != 0 || range.end != usize::MAX {
-            let from_offset = if range.start < blob_size {
-                range.start
-            } else {
-                0
-            };
-            let mut buf = vec![0; (std::cmp::min(range.end, blob_size) - from_offset) as usize];
-
-            if from_offset > 0 {
-                blob.seek(SeekFrom::Start(from_offset as u64))
-                    .await
-                    .map_err(into_error)?;
-            }
-            blob.read_exact(&mut buf).await.map_err(into_error)?;
-            buf
+        let file = File::open(&blob_path).await.map_err(into_error)?;
+        if range.start == 0 && range.end == u64::MAX {
+            Ok(Some(BlobReadStream::File(file)))
         } else {
-            let mut buf = Vec::with_capacity(blob_size as usize);
-            blob.read_to_end(&mut buf).await.map_err(into_error)?;
-            buf
-        }))
+            Ok(Some(BlobReadStream::file_range(file, range).await?))
+        }
     }
 
-    pub(crate) async fn put_blob(&self, key: &[u8], data: &[u8]) -> trc::Result<()> {
+    pub(crate) async fn get_blob_length(&self, key: &[u8]) -> trc::Result<Option<u64>> {
+        let blob_path = self.build_path(key);
+        match fs::metadata(&blob_path).await {
+            Ok(m) => Ok(Some(m.len())),
+            Err(_) => return Ok(None),
+        }
+    }
+
+    pub(crate) async fn put_blob(&self, key: &[u8], data: JumboBytesMut) -> trc::Result<()> {
         let blob_path = self.build_path(key);
 
         if fs::metadata(&blob_path)
             .await
-            .map_or(true, |m| m.len() as usize != data.len())
+            .map_or(true, |m| m.len() != data.len())
         {
             fs::create_dir_all(blob_path.parent().unwrap())
                 .await
                 .map_err(into_error)?;
-            let mut blob_file = File::create(&blob_path).await.map_err(into_error)?;
-            blob_file.write_all(data).await.map_err(into_error)?;
-            blob_file.flush().await.map_err(into_error)?;
+            data.move_into_file(&blob_path).await.map_err(into_error)?;
         }
 
         Ok(())

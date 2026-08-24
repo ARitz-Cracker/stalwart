@@ -275,7 +275,7 @@ impl JmapConfig {
         self.capabilities.account.insert(
             Capability::Blob,
             Capabilities::Blob(BlobCapabilities {
-                max_size_blob_set: (self.request_max_size as u64 * 3 / 4) - 512,
+                max_size_blob_set: self.max_size_blob_set(),
                 max_data_sources: self.request_max_calls as u64,
                 supported_type_names: vec![
                     DataType::Email,

@@ -279,7 +279,10 @@ impl MessageWrapper {
         // Fetch up to MAX_HEADER_SIZE bytes of message headers
         let headers = match server
             .blob_store()
-            .get_blob(self.message.blob_hash.as_slice(), 0..MAX_HEADER_SIZE)
+            .get_blob_vec(
+                self.message.blob_hash.as_slice(),
+                0..(MAX_HEADER_SIZE as u64),
+            )
             .await
         {
             Ok(Some(mut buf)) => {

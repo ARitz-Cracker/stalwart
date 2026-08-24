@@ -23,10 +23,10 @@ pub struct JmapConfig {
     pub get_max_objects: usize,
     pub set_max_objects: usize,
 
-    pub upload_max_size: usize,
+    pub upload_max_size: u64,
     pub upload_max_concurrent: Option<u64>,
 
-    pub upload_tmp_quota_size: usize,
+    pub upload_tmp_quota_size: u64,
     pub upload_tmp_quota_amount: usize,
     pub upload_tmp_ttl: u64,
 
@@ -54,6 +54,13 @@ pub struct JmapConfig {
 }
 
 impl JmapConfig {
+    /// The largest number of blob octets that can be carried inside a single JMAP JSON payload.
+    ///
+    /// Base64 is 75% efficient.
+    pub fn max_size_blob_set(&self) -> u64 {
+        (self.request_max_size as u64 * 3 / 4).saturating_sub(512)
+    }
+
     pub async fn parse(bp: &mut Bootstrap) -> Self {
         let jmap = bp.setting_infallible::<Jmap>().await;
         let web_push_key = jmap
@@ -86,9 +93,9 @@ impl JmapConfig {
             request_max_concurrent: jmap.max_concurrent_requests,
             get_max_objects: jmap.get_max_results as usize,
             set_max_objects: jmap.set_max_objects as usize,
-            upload_max_size: jmap.max_upload_size as usize,
+            upload_max_size: jmap.max_upload_size,
             upload_max_concurrent: jmap.max_concurrent_uploads,
-            upload_tmp_quota_size: jmap.upload_quota as usize,
+            upload_tmp_quota_size: jmap.upload_quota,
             upload_tmp_quota_amount: jmap.max_upload_count as usize,
             upload_tmp_ttl: jmap.upload_ttl.into_inner().as_secs().max(1),
             mail_parse_max_items: jmap.parse_limit_email as usize,

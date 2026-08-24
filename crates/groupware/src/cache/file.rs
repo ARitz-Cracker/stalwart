@@ -133,7 +133,7 @@ pub(super) fn resource_from_file(node: &ArchivedFileNode, document_id: u32) -> D
         document_id,
         data: DavResourceMetadata::File {
             name: node.name.as_str().to_string(),
-            size: node.file.as_ref().map(|f| f.size.to_native()),
+            size: node.file.size(),
             parent_id: if parent_id > 0 {
                 Some(parent_id - 1)
             } else {

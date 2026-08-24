@@ -260,13 +260,17 @@ async fn fetch(
     session: &HttpSessionData,
     max_size: usize,
 ) -> Result<Vec<u8>> {
-    fetch_body(req, max_size, session.session_id)
+    let jbytes = fetch_body(req, max_size as u64, session.session_id)
         .await
         .ok_or_else(|| {
             ScimResponseError::Scim(Error::new(413).with_detail(format!(
                 "The size of the request payload exceeds the maximum of {max_size} bytes."
             )))
-        })
+        })?;
+    Ok(jbytes
+        .into_vec(max_size as u64)
+        .await
+        .expect("max size already enforced"))
 }
 
 pub fn search_request(query: Option<&str>) -> Result<SearchRequest<'_>> {

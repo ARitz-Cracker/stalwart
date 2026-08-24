@@ -5,17 +5,18 @@
  */
 
 use common::manager::application::Resource;
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
 use hyper::{
     StatusCode,
     body::Bytes,
     header::{self, HeaderName, HeaderValue},
 };
 use serde_json::json;
+use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::{
-    DownloadResponse, HtmlResponse, HttpResponse, HttpResponseBody, JsonProblemResponse,
-    JsonResponse, ToHttpResponse,
+    DownloadResponse, HtmlResponse, HttpResponse, HttpResponseBody, HttpResponseBodyError,
+    JsonProblemResponse, JsonResponse, ToHttpResponse,
 };
 
 impl HttpResponse {
@@ -51,7 +52,7 @@ impl HttpResponse {
         self
     }
 
-    pub fn with_content_length(mut self, content_length: usize) -> Self {
+    pub fn with_content_length(mut self, content_length: u64) -> Self {
         self.builder = self.builder.header(header::CONTENT_LENGTH, content_length);
         self
     }
@@ -118,22 +119,93 @@ impl HttpResponse {
         let body = body.into();
         let body_len = body.len();
         self.body = HttpResponseBody::Text(body);
-        self.with_content_length(body_len)
+        self.with_content_length(body_len as u64)
     }
 
     pub fn with_binary_body(mut self, body: impl Into<Vec<u8>>) -> Self {
         let body = body.into();
         let body_len = body.len();
         self.body = HttpResponseBody::Binary(body);
-        self.with_content_length(body_len)
+        self.with_content_length(body_len as u64)
     }
 
     pub fn with_stream_body(
         mut self,
-        stream: http_body_util::combinators::BoxBody<hyper::body::Bytes, hyper::Error>,
+        stream: http_body_util::combinators::UnsyncBoxBody<
+            hyper::body::Bytes,
+            HttpResponseBodyError,
+        >,
     ) -> Self {
         self.body = HttpResponseBody::Stream(stream);
         self
+    }
+
+    pub fn with_io_read_body(
+        mut self,
+        body: Box<dyn AsyncRead + Send + 'static>,
+        body_len: Option<u64>,
+    ) -> Self {
+        use std::pin::Pin;
+        use std::task::{Context as AsyncContext, Poll};
+
+        struct IoBodyWrapper {
+            inner: Option<Pin<Box<dyn AsyncRead + Send>>>,
+            buffer: Vec<u8>,
+            body_len: Option<u64>,
+        }
+        impl http_body::Body for IoBodyWrapper {
+            type Data = Bytes;
+
+            type Error = HttpResponseBodyError;
+
+            fn poll_frame(
+                self: Pin<&mut Self>,
+                cx: &mut AsyncContext<'_>,
+            ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+                let self_mut = self.get_mut();
+                let mut read_buffer = ReadBuf::new(&mut self_mut.buffer);
+                match self_mut.inner.as_mut() {
+                    None => Poll::Ready(None),
+                    Some(inner) => match AsyncRead::poll_read(inner.as_mut(), cx, &mut read_buffer)
+                    {
+                        Poll::Ready(Ok(())) => {
+                            let bytes_read = read_buffer.capacity() - read_buffer.remaining();
+                            if bytes_read == 0 {
+                                self_mut.inner = None;
+                                self_mut.buffer.truncate(0);
+                                Poll::Ready(None)
+                            } else {
+                                Poll::Ready(Some(Ok(http_body::Frame::data(
+                                    Bytes::copy_from_slice(&self_mut.buffer[0..bytes_read]),
+                                ))))
+                            }
+                        }
+                        Poll::Ready(Err(err)) => Poll::Ready(Some(Err(err.into()))),
+                        Poll::Pending => Poll::Pending,
+                    },
+                }
+            }
+
+            fn is_end_stream(&self) -> bool {
+                self.inner.is_none()
+            }
+
+            fn size_hint(&self) -> http_body::SizeHint {
+                self.body_len
+                    .map(http_body::SizeHint::with_exact)
+                    .unwrap_or_default()
+            }
+        }
+        self.body = HttpResponseBody::Stream(UnsyncBoxBody::new(IoBodyWrapper {
+            inner: Some(Box::into_pin(body)),
+            buffer: vec![0u8; 32 * 1024],
+            body_len,
+        }));
+        if let Some(body_len) = body_len {
+            self.with_content_length(body_len)
+        } else {
+            self
+        }
     }
 
     pub fn with_websocket_upgrade(mut self, derived_key: String) -> Self {
@@ -214,18 +286,19 @@ impl HttpResponse {
 
     pub fn build(
         self,
-    ) -> hyper::Response<http_body_util::combinators::BoxBody<hyper::body::Bytes, hyper::Error>>
-    {
+    ) -> hyper::Response<
+        http_body_util::combinators::UnsyncBoxBody<hyper::body::Bytes, HttpResponseBodyError>,
+    > {
         match self.body {
             HttpResponseBody::Text(body) => self.builder.body(
                 Full::new(Bytes::from(body))
                     .map_err(|never| match never {})
-                    .boxed(),
+                    .boxed_unsync(),
             ),
             HttpResponseBody::Binary(body) => self.builder.body(
                 Full::new(Bytes::from(body))
                     .map_err(|never| match never {})
-                    .boxed(),
+                    .boxed_unsync(),
             ),
             HttpResponseBody::Empty => {
                 let has_content_length = self
@@ -241,7 +314,7 @@ impl HttpResponse {
                 builder.body(
                     Full::new(Bytes::new())
                         .map_err(|never| match never {})
-                        .boxed(),
+                        .boxed_unsync(),
                 )
             }
             HttpResponseBody::Stream(stream) => self.builder.body(stream),
@@ -254,7 +327,7 @@ impl HttpResponse {
                 .body(
                     Full::new(Bytes::from("Switching to WebSocket protocol"))
                         .map_err(|never| match never {})
-                        .boxed(),
+                        .boxed_unsync(),
                 ),
         }
         .unwrap()
@@ -296,7 +369,7 @@ impl ToHttpResponse for DownloadResponse {
                 self.filename.replace('\"', "\\\"")
             ))
             .with_cache_control("private, immutable, max-age=31536000")
-            .with_binary_body(self.blob)
+            .with_io_read_body(self.blob, Some(self.content_length))
     }
 }
 

@@ -184,12 +184,12 @@ impl FileNodeCopy for Server {
                                     )),
                                 );
                                 continue 'create;
-                            } else if let Some(blob_contents) = self
+                            } else if let Some(blob_contents_len) = self
                                 .blob_store()
-                                .get_blob(blob_id.hash.as_slice(), 0..usize::MAX)
+                                .get_blob_length(blob_id.hash.as_slice())
                                 .await?
                             {
-                                file_details.size = blob_contents.len() as u32;
+                                file_details.size = blob_contents_len;
                             } else {
                                 response.not_created.append(
                                     id,

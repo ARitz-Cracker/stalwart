@@ -35,13 +35,14 @@ use types::{
     blob_hash::BlobHash,
     collection::{Collection, SyncCollection},
 };
+use utils::jumbo_bytes::JumboBytesMut;
 
 pub(crate) trait FileUpdateRequestHandler: Sync + Send {
     fn handle_file_update_request(
         &self,
         access_token: &AccessToken,
         headers: &RequestHeaders<'_>,
-        bytes: Vec<u8>,
+        bytes: JumboBytesMut,
         is_patch: bool,
     ) -> impl Future<Output = crate::Result<HttpResponse>> + Send;
 }
@@ -51,7 +52,7 @@ impl FileUpdateRequestHandler for Server {
         &self,
         access_token: &AccessToken,
         headers: &RequestHeaders<'_>,
-        bytes: Vec<u8>,
+        mut bytes: JumboBytesMut,
         _is_patch: bool,
     ) -> crate::Result<HttpResponse> {
         // Validate URI
@@ -128,34 +129,35 @@ impl FileUpdateRequestHandler for Server {
                 Err(DavError::Code(StatusCode::PRECONDITION_FAILED))
                     if headers.ret == Return::Representation =>
                 {
-                    let file = node.inner.file.as_ref().unwrap();
-                    let contents = self
+                    let file_blob_hash = node.inner.file.blob_hash().unwrap();
+                    let file_media_type = node.inner.file.media_type().unwrap();
+                    let (contents, contents_length) = self
                         .blob_store()
-                        .get_blob(file.blob_hash.0.as_slice(), 0..usize::MAX)
+                        .get_blob(file_blob_hash.as_slice(), 0..u64::MAX)
                         .await
                         .caused_by(trc::location!())?
                         .ok_or(DavError::Code(StatusCode::PRECONDITION_FAILED))?;
 
                     return Ok(HttpResponse::new(StatusCode::PRECONDITION_FAILED)
-                        .with_content_type(
-                            file.media_type
-                                .as_ref()
-                                .map(|v| v.as_str())
-                                .unwrap_or("application/octet-stream"),
-                        )
+                        .with_content_type(file_media_type)
                         .with_etag(node.etag())
                         .with_last_modified(
                             Rfc1123DateTime::new(i64::from(node.inner.modified)).to_string(),
                         )
                         .with_header("Preference-Applied", "return=representation")
-                        .with_binary_body(contents));
+                        .with_io_read_body(Box::new(contents), Some(contents_length)));
                 }
                 Err(e) => return Err(e),
             }
 
             // Verify that the node is a file
-            if let Some(file) = node.inner.file.as_ref() {
-                if BlobHash::generate(&bytes).as_slice() == file.blob_hash.0.as_slice() {
+            if let Some(blob_hash) = node.inner.file.blob_hash() {
+                if BlobHash::generate_from_stream(&mut bytes)
+                    .await
+                    .caused_by(trc::location!())?
+                    .as_slice()
+                    == blob_hash.as_slice()
+                {
                     return Ok(HttpResponse::new(StatusCode::NO_CONTENT));
                 }
             } else {
@@ -163,16 +165,16 @@ impl FileUpdateRequestHandler for Server {
             }
 
             // Validate quota
-            let extra_bytes = (bytes.len() as u64)
-                .saturating_sub(u32::from(node.inner.file.as_ref().unwrap().size) as u64);
+            let extra_bytes = (bytes.len() as u64).saturating_sub(node.inner.file.size().unwrap());
             if extra_bytes > 0 {
                 self.has_available_quota(self.account(account_id).await?.as_ref(), extra_bytes)
                     .await?;
             }
 
             // Write blob
+            let bytes_len = bytes.len();
             let (blob_hash, blob_hold) = self
-                .put_temporary_blob(account_id, &bytes, 60)
+                .put_temporary_blob(account_id, bytes, 60)
                 .await
                 .caused_by(trc::location!())?;
 
@@ -184,7 +186,7 @@ impl FileUpdateRequestHandler for Server {
                 .content_type
                 .filter(|ct| !ct.is_empty() && *ct != "application/octet-stream")
                 .map(|v| v.to_string());
-            new_file.size = bytes.len() as u32;
+            new_file.size = bytes_len;
             new_node.modified = now() as i64;
 
             // Prepare write batch
@@ -243,16 +245,14 @@ impl FileUpdateRequestHandler for Server {
 
             // Validate quota
             if !bytes.is_empty() {
-                self.has_available_quota(
-                    self.account(account_id).await?.as_ref(),
-                    bytes.len() as u64,
-                )
-                .await?;
+                self.has_available_quota(self.account(account_id).await?.as_ref(), bytes.len())
+                    .await?;
             }
 
             // Write blob
+            let bytes_len = bytes.len();
             let (blob_hash, blob_hold) = self
-                .put_temporary_blob(account_id, &bytes, 60)
+                .put_temporary_blob(account_id, bytes, 60)
                 .await
                 .caused_by(trc::location!())?;
 
@@ -264,7 +264,7 @@ impl FileUpdateRequestHandler for Server {
                 display_name: None,
                 file: Some(FileProperties {
                     blob_hash,
-                    size: bytes.len() as u32,
+                    size: bytes_len,
                     media_type: headers.content_type.map(|v| v.to_string()),
                     executable: false,
                 }),

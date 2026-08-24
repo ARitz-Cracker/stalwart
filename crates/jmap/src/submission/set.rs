@@ -657,12 +657,12 @@ impl EmailSubmissionSet for Server {
         };
 
         // Obtain raw message
-        let mut message = if let Some(message) = self
+        let mut message = if let Some((message_stream, message_len)) = self
             .blob_store()
-            .get_blob(metadata.blob_hash.0.as_slice(), 0..usize::MAX)
+            .get_blob(metadata.blob_hash.0.as_slice(), 0..u64::MAX)
             .await?
         {
-            if message.len() > self.core.email.mail_max_size {
+            if message_len > self.core.email.mail_max_size as u64 {
                 return Ok(Err(SetError::new(SetErrorType::InvalidEmail)
                     .with_description(format!(
                         "Message exceeds maximum size of {} bytes.",
@@ -670,7 +670,10 @@ impl EmailSubmissionSet for Server {
                     ))));
             }
 
-            message
+            message_stream
+                .into_vec()
+                .await
+                .caused_by(trc::location!())?
         } else {
             return Ok(Err(SetError::invalid_properties()
                 .with_property(EmailSubmissionProperty::EmailId)

@@ -16,8 +16,13 @@ use store::{
     write::{AnyClass, AnyKey, ValueClass},
     *,
 };
+use tokio::io::AsyncSeekExt as _;
 use types::blob_hash::{BLOB_HASH_LEN, BlobHash};
-use utils::{UnwrapFailure, codec::leb128::Leb128_};
+use utils::{
+    UnwrapFailure,
+    codec::leb128::Leb128_,
+    jumbo_bytes::{JumboBytesMut, JumboBytesMutSync},
+};
 
 pub(super) const MAGIC_MARKER: u8 = 123;
 
@@ -142,13 +147,19 @@ impl Core {
                     .failed("Failed to iterate over data store");
 
                 for hash in blobs {
-                    if let Some(blob) = blob_store
-                        .get_blob(hash.as_slice(), 0..usize::MAX)
+                    if let Some((mut blob_stream, _)) = blob_store
+                        .get_blob(hash.as_slice(), 0..u64::MAX)
                         .await
                         .failed("Failed to get blob")
                     {
+                        let mut blob = JumboBytesMut::new(u64::MAX);
+                        tokio::io::copy(&mut blob_stream, &mut blob)
+                            .await
+                            .failed("Failed to get/decompress blob");
+                        blob.rewind().await.failed("Failed to get/decompress blob");
+
                         writer
-                            .send((hash.as_slice().to_vec(), blob))
+                            .send((hash.as_slice().to_vec(), blob.into()))
                             .failed("Failed to send key");
                     }
                 }
@@ -184,7 +195,7 @@ impl Core {
                             ),
                             |key, value| {
                                 writer
-                                    .send((key.to_vec(), value.to_vec()))
+                                    .send((key.to_vec(), value.to_vec().into()))
                                     .failed("Failed to send key");
 
                                 Ok(true)
@@ -225,7 +236,7 @@ impl Core {
                             .await
                             .failed("Failed to get counter");
                         writer
-                            .send((key.to_vec(), (counter as u64).to_le_bytes().to_vec()))
+                            .send((key.to_vec(), (counter as u64).to_le_bytes().to_vec().into()))
                             .failed("Failed to send key");
                     }
                 }
@@ -240,8 +251,11 @@ fn spawn_writer(
     path: PathBuf,
     subspace: u8,
     version: u32,
-) -> (std::thread::JoinHandle<()>, SyncSender<(Vec<u8>, Vec<u8>)>) {
-    let (tx, rx) = mpsc::sync_channel::<(Vec<u8>, Vec<u8>)>(10);
+) -> (
+    std::thread::JoinHandle<()>,
+    SyncSender<(Vec<u8>, JumboBytesMutSync)>,
+) {
+    let (tx, rx) = mpsc::sync_channel::<(Vec<u8>, JumboBytesMutSync)>(10);
 
     let handle = std::thread::spawn(move || {
         println!("Exporting database to {}.", path.to_str().unwrap());
@@ -254,7 +268,7 @@ fn spawn_writer(
         file.write_all(&version.to_le_bytes())
             .failed("Failed to write version");
 
-        while let Ok((key, value)) = rx.recv() {
+        while let Ok((key, mut value)) = rx.recv() {
             key.len()
                 .to_leb128_writer(&mut file)
                 .failed("Failed to write key value");
@@ -263,8 +277,9 @@ fn spawn_writer(
                 .len()
                 .to_leb128_writer(&mut file)
                 .failed("Failed to write key value");
+
             if !value.is_empty() {
-                file.write_all(&value).failed("Failed to write key value");
+                std::io::copy(&mut value, &mut file).failed("Failed to write key value");
             }
         }
 

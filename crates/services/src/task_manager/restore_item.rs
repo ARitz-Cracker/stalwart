@@ -50,7 +50,7 @@ async fn restore_item(server: &Server, task: &TaskRestoreArchivedItem) -> trc::R
 
             let Some(bytes) = server
                 .blob_store()
-                .get_blob(task.blob_id.hash.as_slice(), 0..usize::MAX)
+                .get_blob_vec(task.blob_id.hash.as_slice(), 0..u64::MAX)
                 .await?
             else {
                 return Ok(TaskResult::permanent("Blob not found"));

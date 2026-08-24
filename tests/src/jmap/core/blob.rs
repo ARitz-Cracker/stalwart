@@ -104,6 +104,21 @@ pub async fn test(test: &TestServer) {
               "length" : 9
             },
             "R2"
+          ],
+          [
+            "Blob/get",
+            {
+              "accountId": account.id_string(),
+              "ids" : [
+                blob_id
+              ],
+              "properties" : [
+                "digest:sha",
+                "digest:sha-256",
+                "digest:sha-512"
+              ]
+            },
+            "R3"
           ]
         ]))
         .await;
@@ -126,6 +141,18 @@ pub async fn test(test: &TestServer) {
         (
             "/methodResponses/1/1/list/0/digest:sha-256",
             "gdg9INW7lwHK6OQ9u0dwDz2ZY/gubi0En0xlFpKt0OA=",
+        ),
+        (
+            "/methodResponses/2/1/list/0/digest:sha",
+            "wIVPufsDxBzOOALLDSIFKebu+U4=",
+        ),
+        (
+            "/methodResponses/2/1/list/0/digest:sha-256",
+            "aLEoK5HeLAVMNmKcuN1EfxLwltPjxYeXjcIkhERjNIM=",
+        ),
+        (
+            "/methodResponses/2/1/list/0/digest:sha-512",
+            "CowVAXbCujkdfxZw70lVzZnTw+yM8GGYzsMNQ28qwMm2Qim1pUvb1VYxYFA86ZKnS+Uodh2p0MSLfHRicwLrJQ==",
         ),
     ] {
         assert_eq!(

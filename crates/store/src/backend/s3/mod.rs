@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use crate::BlobStore;
+use crate::{BlobStore, stream::BlobReadStream};
 use registry::schema::structs;
 use s3::{Bucket, Region, creds::Credentials};
 use std::{io::Write, ops::Range, sync::Arc, time::Duration};
-use utils::codec::base32_custom::Base32Writer;
+use tokio::io::AsyncSeekExt;
+use trc::AddContext;
+use utils::{codec::base32_custom::Base32Writer, jumbo_bytes::JumboBytesMut};
 
 pub struct S3Store {
     bucket: Box<Bucket>,
@@ -94,27 +96,35 @@ impl S3Store {
     pub(crate) async fn get_blob(
         &self,
         key: &[u8],
-        range: Range<usize>,
-    ) -> trc::Result<Option<Vec<u8>>> {
+        range: Range<u64>,
+    ) -> trc::Result<Option<BlobReadStream>> {
         let path = self.build_key(key);
         let mut retries_left = self.max_retries;
 
         loop {
-            let response = if range.start != 0 || range.end != usize::MAX {
-                self.bucket
-                    .get_object_range(
-                        &path,
-                        range.start as u64,
-                        Some(range.end.saturating_sub(1) as u64),
-                    )
+            let response = if range.start != 0 || range.end != u64::MAX {
+                // FIXME: https://github.com/durch/rust-s3/issues/475
+                use s3::command::Command;
+                use s3::request::{Request as _, tokio_backend::ReqwestRequest as RequestImpl};
+                let command = Command::GetObjectRange {
+                    start: range.start,
+                    end: if range.end == u64::MAX {
+                        None
+                    } else {
+                        Some(range.end)
+                    },
+                };
+                let request = RequestImpl::new(&self.bucket, path.as_ref(), command)
                     .await
+                    .map_err(into_error)?;
+                request.response_data_to_stream().await
             } else {
-                self.bucket.get_object(&path).await
+                self.bucket.get_object_stream(&path).await
             }
             .map_err(into_error)?;
 
-            match response.status_code() {
-                200..=299 => return Ok(Some(response.to_vec())),
+            match response.status_code {
+                200..=299 => return Ok(Some(BlobReadStream::S3(response))),
                 404 => return Ok(None),
                 500..=599 if retries_left > 0 => {
                     // wait backoff
@@ -127,26 +137,58 @@ impl S3Store {
                 }
                 code => {
                     return Err(trc::StoreEvent::S3Error
-                        .reason(String::from_utf8_lossy(response.as_slice()))
+                        .reason(String::from_utf8_lossy(
+                            BlobReadStream::S3(response)
+                                .into_vec()
+                                .await
+                                .unwrap_or_default()
+                                .as_slice(),
+                        ))
                         .ctx(trc::Key::Code, code));
                 }
             }
         }
     }
 
-    pub(crate) async fn put_blob(&self, key: &[u8], data: &[u8]) -> trc::Result<()> {
+    pub(crate) async fn get_blob_length(&self, key: &[u8]) -> trc::Result<Option<u64>> {
         let path = self.build_key(key);
         let mut retries_left = self.max_retries;
 
         loop {
-            let response = self
-                .bucket
-                .put_object(&path, data)
-                .await
-                .map_err(into_error)?;
+            let (response, status_code) =
+                self.bucket.head_object(&path).await.map_err(into_error)?;
 
-            match response.status_code() {
-                200..=299 => {
+            match status_code {
+                200..=299 => return Ok(response.content_length.map(|length| length as u64)),
+                404 => return Ok(None),
+                500..=599 if retries_left > 0 => {
+                    // wait backoff
+                    tokio::time::sleep(Duration::from_secs(
+                        1 << (self.max_retries - retries_left).min(6),
+                    ))
+                    .await;
+
+                    retries_left -= 1;
+                }
+                code => {
+                    return Err(trc::StoreEvent::S3Error
+                        .reason(format!("HEAD status {code}"))
+                        .ctx(trc::Key::Code, code));
+                }
+            }
+        }
+    }
+
+    pub(crate) async fn put_blob(&self, key: &[u8], mut data: JumboBytesMut) -> trc::Result<()> {
+        let path = self.build_key(key);
+        let mut retries_left = self.max_retries;
+
+        loop {
+            let response = self.bucket.put_object_stream(&mut data, &path).await;
+            // `put_object_stream` returns an Err on a non-200 response, so checking the status code on that won't do
+            // anything for us.
+            match response {
+                Ok(_) => {
                     if !self.verify_after_write {
                         return Ok(());
                     }
@@ -182,19 +224,28 @@ impl S3Store {
                         }
                     }
                 }
-                500..=599 if retries_left > 0 => {
+                Err(s3::error::S3Error::HttpFail)
+                | Err(s3::error::S3Error::HttpFailWithBody(500..599, _))
+                    if retries_left > 0 =>
+                {
                     // wait backoff
                     tokio::time::sleep(Duration::from_secs(
                         1 << (self.max_retries - retries_left).min(6),
                     ))
                     .await;
-
+                    data.rewind()
+                        .await
+                        .map_err(into_error)
+                        .caused_by(trc::location!())?;
                     retries_left -= 1;
                 }
-                code => {
+                Err(s3::error::S3Error::HttpFailWithBody(code, body)) => {
                     return Err(trc::StoreEvent::S3Error
-                        .reason(String::from_utf8_lossy(response.as_slice()))
+                        .reason(body)
                         .ctx(trc::Key::Code, code));
+                }
+                Err(err) => {
+                    return Err(into_error(err));
                 }
             }
         }

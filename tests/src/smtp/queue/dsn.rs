@@ -125,7 +125,7 @@ async fn generate_dsn() {
         .blob_store()
         .put_blob(
             message.message.blob_hash.as_slice(),
-            dsn_original.as_bytes(),
+            dsn_original.clone().into(),
             CompressionAlgo::Lz4,
         )
         .await
@@ -207,7 +207,7 @@ impl TestServer {
         let bytes = self
             .server
             .blob_store()
-            .get_blob(message.blob_hash.as_slice(), 0..usize::MAX)
+            .get_blob_vec(message.blob_hash.as_slice(), 0..u64::MAX)
             .await
             .unwrap()
             .unwrap();

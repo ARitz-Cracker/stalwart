@@ -77,7 +77,11 @@ pub async fn blob_tests() {
 
     // Write blob to store
     blob_store
-        .put_blob(hash.as_ref(), b"abc", CompressionAlgo::Lz4)
+        .put_blob(
+            hash.as_ref(),
+            Vec::from(b"abc").into(),
+            CompressionAlgo::Lz4,
+        )
         .await
         .unwrap();
 
@@ -95,7 +99,7 @@ pub async fn blob_tests() {
     assert!(store.blob_exists(&hash).await.unwrap());
     assert!(
         blob_store
-            .get_blob(hash.as_ref(), 0..usize::MAX)
+            .get_blob_length(hash.as_ref())
             .await
             .unwrap()
             .is_some()
@@ -156,7 +160,7 @@ pub async fn blob_tests() {
     // Blob should no longer be in store
     assert!(
         blob_store
-            .get_blob(hash.as_ref(), 0..usize::MAX)
+            .get_blob_length(hash.as_ref())
             .await
             .unwrap()
             .is_none()
@@ -220,7 +224,7 @@ pub async fn blob_tests() {
 
         store.write(batch.build_all()).await.unwrap();
         blob_store
-            .put_blob(hash.as_ref(), blob.as_slice(), CompressionAlgo::Lz4)
+            .put_blob(hash.as_ref(), Vec::from(blob).into(), CompressionAlgo::Lz4)
             .await
             .unwrap();
     }
@@ -286,7 +290,7 @@ pub async fn blob_tests() {
         assert!(store.blob_exists(&hash).await.unwrap() ^ ct);
         assert!(
             blob_store
-                .get_blob(hash.as_ref(), 0..usize::MAX)
+                .get_blob_length(hash.as_ref())
                 .await
                 .unwrap()
                 .is_some()
@@ -379,7 +383,7 @@ pub async fn blob_tests() {
         assert!(store.blob_exists(&hash).await.unwrap() ^ ct);
         assert!(
             blob_store
-                .get_blob(hash.as_ref(), 0..usize::MAX)
+                .get_blob_length(hash.as_ref())
                 .await
                 .unwrap()
                 .is_some()
@@ -436,7 +440,7 @@ pub async fn blob_tests() {
         assert!(store.blob_exists(&hash).await.unwrap() ^ ct);
         assert!(
             blob_store
-                .get_blob(hash.as_ref(), 0..usize::MAX)
+                .get_blob_length(hash.as_ref())
                 .await
                 .unwrap()
                 .is_some()
@@ -453,13 +457,17 @@ async fn test_store(store: BlobStore) {
     let hash = BlobHash::generate(DATA);
 
     store
-        .put_blob(hash.as_slice(), DATA, CompressionAlgo::Lz4)
+        .put_blob(
+            hash.as_slice(),
+            Vec::from(DATA).into(),
+            CompressionAlgo::Lz4,
+        )
         .await
         .unwrap();
     assert_eq!(
         String::from_utf8(
             store
-                .get_blob(hash.as_slice(), 0..usize::MAX)
+                .get_blob_vec(hash.as_slice(), 0..u64::MAX)
                 .await
                 .unwrap()
                 .unwrap()
@@ -470,7 +478,7 @@ async fn test_store(store: BlobStore) {
     assert_eq!(
         String::from_utf8(
             store
-                .get_blob(hash.as_slice(), 11..57)
+                .get_blob_vec(hash.as_slice(), 11..57)
                 .await
                 .unwrap()
                 .unwrap()
@@ -481,7 +489,7 @@ async fn test_store(store: BlobStore) {
     assert!(store.delete_blob(hash.as_slice()).await.unwrap());
     assert!(
         store
-            .get_blob(hash.as_slice(), 0..usize::MAX)
+            .get_blob_length(hash.as_slice())
             .await
             .unwrap()
             .is_none()
@@ -496,13 +504,13 @@ async fn test_store(store: BlobStore) {
     }
     let hash = BlobHash::generate(&data);
     store
-        .put_blob(hash.as_slice(), &data, CompressionAlgo::Lz4)
+        .put_blob(hash.as_slice(), data.clone().into(), CompressionAlgo::Lz4)
         .await
         .unwrap();
     assert_eq!(
         String::from_utf8(
             store
-                .get_blob(hash.as_slice(), 0..usize::MAX)
+                .get_blob_vec(hash.as_slice(), 0..u64::MAX)
                 .await
                 .unwrap()
                 .unwrap()
@@ -514,7 +522,7 @@ async fn test_store(store: BlobStore) {
     assert_eq!(
         String::from_utf8(
             store
-                .get_blob(hash.as_slice(), 3000111..4000999)
+                .get_blob_vec(hash.as_slice(), 3000111..4000999)
                 .await
                 .unwrap()
                 .unwrap()
@@ -525,7 +533,7 @@ async fn test_store(store: BlobStore) {
     assert!(store.delete_blob(hash.as_slice()).await.unwrap());
     assert!(
         store
-            .get_blob(hash.as_slice(), 0..usize::MAX)
+            .get_blob_vec(hash.as_slice(), 0..u64::MAX)
             .await
             .unwrap()
             .is_none()

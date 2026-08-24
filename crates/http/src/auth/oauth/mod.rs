@@ -199,7 +199,10 @@ impl FormData {
                 .get(CONTENT_TYPE)
                 .and_then(|h| h.to_str().ok())
                 .and_then(|val| val.parse::<mime::Mime>().ok()),
-            fetch_body(req, max_len, session_id).await,
+            match fetch_body(req, max_len as u64, session_id).await {
+                Some(jb) => jb.into_vec(max_len as u64).await.ok(),
+                None => None,
+            },
         ) {
             (Some(content_type), Some(body)) => {
                 let mut fields = VecMap::new();
